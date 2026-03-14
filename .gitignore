@@ -1,0 +1,29 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+
+# MATLAB / Simulink generated artifacts
+*.asv
+*.autosave
+slprj/
+codegen/
+*.slxc
+*.mex*
+
+# HDL and simulation outputs
+work/
+transcript
+*.wlf
+*.log
+*.jou
+*.pb
+*.str
+*.sim
+*.tmp
+
+# Build and report artifacts
+build/
+reports/
