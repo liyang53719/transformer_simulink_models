@@ -32,3 +32,4 @@ reports/
 matlab_ref/transformer-models/
 verification/testvectors/*.mat
 matlab_ref/cache/*.mat
+verification/reports/*.json

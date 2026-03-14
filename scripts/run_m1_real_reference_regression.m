@@ -10,6 +10,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
         options.LayerIndex (1,1) double = 1
         options.PreferDequantizeNow (1,1) logical = false
         options.BaselineMode (1,:) char = 'real'
+        options.ReportDir (1,:) char = ''
     end
 
     rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -40,7 +41,19 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     regOpt.ReferenceContext = refCtx;
     regOpt.BaselineMode = string(options.BaselineMode);
 
-    run_m1_minimal_regression(struct('VectorOptions', vecOpt, 'RegressionOptions', regOpt));
+    reportDir = string(options.ReportDir);
+    if strlength(reportDir) == 0
+        reportDir = fullfile(rootDir, 'verification', 'reports');
+    end
+
+    safeToken = regexprep(string(paramsFileOrModule), '[^a-zA-Z0-9_\-]+', '_');
+    reportTag = "m1_real_" + safeToken + "_" + lower(string(options.BaselineMode));
+
+    run_m1_minimal_regression(struct( ...
+        'VectorOptions', vecOpt, ...
+        'RegressionOptions', regOpt, ...
+        'ReportDir', reportDir, ...
+        'ReportTag', reportTag));
 end
 
 function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options)
