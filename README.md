@@ -19,6 +19,10 @@
 - M1 Block 接口规格：`docs/05_m1_block_interface_spec.md`
 - M1 测试向量与误差预算：`docs/06_m1_testvector_error_budget.md`
 - M1 Simulink 顶层占位清单：`docs/07_m1_simulink_top_placeholder.md`
+- M1 自动化与一致性执行：`docs/08_m1_automation_and_consistency.md`
+
+## 最小执行入口
+- MATLAB 脚本入口说明：`scripts/README.md`
 
 ## 开发原则
 - 先正确，再优化：先打通功能闭环，再推进吞吐优化。

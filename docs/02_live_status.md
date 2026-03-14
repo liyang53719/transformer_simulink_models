@@ -23,16 +23,18 @@
 - 推送首个基线提交到远端 main 分支。
 - 新增 M1 执行计划文档与目录骨架（simulink/matlab_ref/rtl/verification/scripts）。
 - 完成 M1 接口规格、测试向量模板、Simulink 顶层占位清单三份执行文档。
-- 下一步：在 Simulink 中创建 `qwen2_block_top.slx` 占位模型并完成第一轮空跑。
+- 新增 scripts/verification 最小可执行脚手架，并补充 Simulink 占位模型创建与一致性检查脚本。
+- 新增真实 qwen2 block 适配层与真实参考回归入口，支持接入外部 `+qwen2` / `+qwen2_quant` 路径验证。
+- 下一步：在 MATLAB 中执行真实参考回归并记录首轮 PASS/FAIL 日志。
 
 ## 当前风险
 - 尚未冻结 Qwen2-1.5B 精确模型配置（层数/维度/头数）到仓库配置文件。
-- 尚未实现自动化回归脚本，当前门禁依赖手动执行。
+- 真实参考回归依赖本地 MATLAB path 和参数文件格式，首次联调可能出现接口不匹配。
 
 ## 阻塞列表
 - 暂无。
 
 ## 下一步（按优先级）
-1. 在 Simulink 创建 `qwen2_block_top` 顶层空模型并接入占位子系统。
-2. 在 `verification/testvectors/` 落地首批 case 样例文件。
-3. 增加回归执行脚本入口（先支持算子级与 block 级最小用例）。
+1. 在 MATLAB 执行 `run_m1_real_reference_regression('<paramsFile>')` 完成真实路径联调。
+2. 若真实路径失败，记录失败日志并回退 `run_m1_minimal_regression` 保持基线可用。
+3. 在 Simulink 占位模型基础上对齐第一版真实 block 接口信号。
