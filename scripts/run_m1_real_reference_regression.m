@@ -1,12 +1,14 @@
-function run_m1_real_reference_regression(paramsFile, options)
+function run_m1_real_reference_regression(paramsFileOrModule, options)
 %RUN_M1_REAL_REFERENCE_REGRESSION Run M1 regression using real qwen2 block adapter.
 %
 % Example:
 %   run_m1_real_reference_regression('path/to/qwen_params.mat')
+%   run_m1_real_reference_regression('module_awq')
 
     arguments
-        paramsFile (1,:) char
+        paramsFileOrModule (1,:) char
         options.LayerIndex (1,1) double = 1
+        options.PreferDequantizeNow (1,1) logical = false
     end
 
     rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -15,7 +17,14 @@ function run_m1_real_reference_regression(paramsFile, options)
     addpath(fullfile(rootDir, 'verification'));
     addpath(fullfile(rootDir, 'matlab_ref'));
 
-    params = load_qwen_parameters_adapter(paramsFile);
+    [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options);
+    fprintf('Resolved real reference source: %s\n', sourceInfo);
+
+    if ~isfield(params, 'Hyperparameters') || ~isfield(params.Hyperparameters, 'HiddenSize')
+        error('run_m1_real_reference_regression:MissingHiddenSize', ...
+            'Resolved parameters do not contain Hyperparameters.HiddenSize.');
+    end
+
     hp = params.Hyperparameters;
 
     vecOpt = struct('HiddenSize', double(hp.HiddenSize), 'TokensPrefill', 4, 'DecodeKvLen', 3);
@@ -31,25 +40,118 @@ function run_m1_real_reference_regression(paramsFile, options)
     run_m1_minimal_regression(struct('VectorOptions', vecOpt, 'RegressionOptions', regOpt));
 end
 
-function params = load_qwen_parameters_adapter(paramsFile)
+function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options)
+    token = string(paramsFileOrModule);
+    sourceInfo = '';
+
+    moduleMap = localModuleMap(rootDir);
+    if isKey(moduleMap, lower(token))
+        token = string(moduleMap(lower(token)));
+    end
+
+    if endsWith(lower(token), ".mat") && exist(token, 'file') == 2
+        [params, sourceInfo] = load_from_mat_file(char(token));
+        return;
+    end
+
+    if exist(token, 'dir') == 7
+        [params, sourceInfo] = load_from_model_dir(char(token), rootDir, options);
+        return;
+    end
+
+    error('run_m1_real_reference_regression:InputNotFound', ...
+        'Input not found as .mat file or directory: %s', char(token));
+end
+
+function [params, sourceInfo] = load_from_mat_file(paramsFile)
     raw = load(paramsFile);
 
     if isfield(raw, 'Hyperparameters') && isfield(raw, 'Weights')
         params = raw;
+        sourceInfo = sprintf('hierarchical mat: %s', paramsFile);
         return;
     end
 
     if exist('qwen2.load', 'file') == 2
         params = qwen2.load(paramsFile);
+        sourceInfo = sprintf('qwen2.load from mat: %s', paramsFile);
         return;
     end
 
     if exist('qwen2_quant.load_hf_quant_matlab', 'file') == 2
         params = qwen2_quant.load_hf_quant_matlab(paramsFile);
+        sourceInfo = sprintf('qwen2_quant.load_hf_quant_matlab from mat: %s', paramsFile);
         return;
     end
 
     error('run_m1_real_reference_regression:UnsupportedParams', ...
         ['Cannot parse parameters file. Provide hierarchical struct or add +qwen2/+qwen2_quant ' ...
          'to MATLAB path.']);
+end
+
+function [params, sourceInfo] = load_from_model_dir(modelDir, rootDir, options)
+    nameLower = lower(string(modelDir));
+
+    if contains(nameLower, 'awq') || contains(nameLower, 'gptq')
+        [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir);
+        return;
+    end
+
+    if exist('qwen2_quant.load_gguf', 'file') == 2
+        ggufPath = pick_first_gguf(modelDir);
+        if strlength(ggufPath) > 0
+            params = qwen2_quant.load_gguf(ggufPath, 'DequantizeNow', options.PreferDequantizeNow, 'Verbose', false);
+            sourceInfo = sprintf('qwen2_quant.load_gguf from: %s', ggufPath);
+            return;
+        end
+    end
+
+    error('run_m1_real_reference_regression:UnsupportedModelDir', ...
+        ['Unsupported model dir or missing loader for: %s. ' ...
+         'Expected AWQ/GPTQ folder or GGUF folder with *.gguf files.'], modelDir);
+end
+
+function [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir)
+    if exist('qwen2_quant.load_hf_quant_matlab', 'file') ~= 2
+        error('run_m1_real_reference_regression:MissingLoader', ...
+            'qwen2_quant.load_hf_quant_matlab is required for AWQ/GPTQ model dirs.');
+    end
+
+    cacheDir = fullfile(rootDir, 'matlab_ref', 'cache');
+    if ~exist(cacheDir, 'dir')
+        mkdir(cacheDir);
+    end
+
+    [~, leaf] = fileparts(modelDir);
+    matOut = fullfile(cacheDir, [leaf '_params.mat']);
+
+    if exist(matOut, 'file') ~= 2
+        if exist('qwen2_quant.prepare_hf_quant_matlab', 'file') == 2
+            qwen2_quant.prepare_hf_quant_matlab(string(modelDir), string(matOut), ...
+                'LocalFilesOnly', true, 'TrustRemoteCode', true, 'HFEndpoint', "https://hf-mirror.com");
+        else
+            error('run_m1_real_reference_regression:MissingExporter', ...
+                'Missing qwen2_quant.prepare_hf_quant_matlab and no cached mat found: %s', matOut);
+        end
+    end
+
+    params = qwen2_quant.load_hf_quant_matlab(matOut);
+    sourceInfo = sprintf('hf quant model dir: %s (mat cache: %s)', modelDir, matOut);
+end
+
+function ggufPath = pick_first_gguf(modelDir)
+    ggufPath = "";
+    listing = dir(fullfile(modelDir, '*.gguf'));
+    if ~isempty(listing)
+        ggufPath = string(fullfile(modelDir, listing(1).name));
+    end
+end
+
+function m = localModuleMap(rootDir)
+    moduleRoot = fullfile(rootDir, 'matlab_ref', 'module');
+    m = containers.Map('KeyType', 'char', 'ValueType', 'char');
+
+    m('module_awq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-AWQ');
+    m('module_gptq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-GPTQ-Int4');
+    m('module_gguf') = fullfile(moduleRoot, 'qwen_gguf');
 end

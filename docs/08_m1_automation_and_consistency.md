@@ -33,3 +33,4 @@
 ## 6. 真实参考适配路径（已支持）
 - 通过 `run_m1_real_reference_regression(paramsFile)` 可优先尝试接入已有 `+qwen2` / `+qwen2_quant` 的 block 实现。
 - 若 MATLAB path 或参数结构不满足要求，会自动报错提示并可退回 placeholder 模式。
+- 支持 module 别名输入：`module_awq`、`module_gptq`、`module_gguf`，自动映射到 `matlab_ref/module` 下对应目录。

@@ -25,6 +25,7 @@
 - 完成 M1 接口规格、测试向量模板、Simulink 顶层占位清单三份执行文档。
 - 新增 scripts/verification 最小可执行脚手架，并补充 Simulink 占位模型创建与一致性检查脚本。
 - 新增真实 qwen2 block 适配层与真实参考回归入口，支持接入外部 `+qwen2` / `+qwen2_quant` 路径验证。
+- 确认 `matlab_ref/module` 下 AWQ/GPTQ/GGUF 三个软链接可见，并为真实回归入口增加 module 别名自动解析。
 - 下一步：在 MATLAB 中执行真实参考回归并记录首轮 PASS/FAIL 日志。
 
 ## 当前风险
