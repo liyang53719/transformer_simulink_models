@@ -27,3 +27,7 @@ transcript
 # Build and report artifacts
 build/
 reports/
+
+# Local external dependency clone and generated vectors
+matlab_ref/transformer-models/
+verification/testvectors/*.mat

@@ -5,7 +5,7 @@ function [outHidden, outKV] = qwen2_block_ref_real_adapter(inHidden, inResidual,
     arguments
         inHidden single
         inResidual single
-        kvReadData single = single([])
+        kvReadData single
         ctx struct
     end
 
@@ -31,10 +31,15 @@ function [outHidden, outKV] = qwen2_block_ref_real_adapter(inHidden, inResidual,
     past = buildPastFromKv(kvReadData, hp);
     freqs_cis = buildFreqsCis(hp, seqLen, sizePastLen(past), ctx);
 
-    if exist('qwen2.layer.block', 'file') == 2
+    useQuantBlock = is_quantized_layer(layerWeights);
+
+    if useQuantBlock && ~isempty(which('qwen2_quant.layer.block'))
+        cfg = mergeStruct(defaultRuntimeCfg(), getFieldOr(ctx, 'RuntimeConfig', struct()));
+        [hOut, present] = qwen2_quant.layer.block(h, past, layerWeights, hp, freqs_cis, cfg);
+    elseif ~isempty(which('qwen2.layer.block'))
         [hOut, present] = qwen2.layer.block(h, past, layerWeights, hp, freqs_cis);
-    elseif exist('qwen2_quant.layer.block', 'file') == 2
-        cfg = getFieldOr(ctx, 'RuntimeConfig', struct('LinearMode', 'float'));
+    elseif ~isempty(which('qwen2_quant.layer.block'))
+        cfg = mergeStruct(defaultRuntimeCfg(), getFieldOr(ctx, 'RuntimeConfig', struct()));
         [hOut, present] = qwen2_quant.layer.block(h, past, layerWeights, hp, freqs_cis, cfg);
     else
         error('qwen2_block_ref_real_adapter:MissingDependency', ...
@@ -96,7 +101,7 @@ function freqs_cis = buildFreqsCis(hp, seqLen, pastLen, ctx)
         maxSeq = max(maxSeq, startPos + seqLen + 16);
     end
 
-    if exist('transformer.layer.precomputeFreqsCis', 'file') == 2
+    if ~isempty(which('transformer.layer.precomputeFreqsCis'))
         freqs = transformer.layer.precomputeFreqsCis(headDim, maxSeq, ropeTheta);
         freqs = complex(single(real(freqs)), single(imag(freqs)));
     else
@@ -111,5 +116,46 @@ function out = getFieldOr(s, name, defaultValue)
         out = s.(name);
     else
         out = defaultValue;
+    end
+end
+
+function tf = is_quantized_layer(layerWeights)
+    tf = false;
+    candidates = {'self_attn_q_proj', 'self_attn_k_proj', 'self_attn_v_proj', 'mlp_gate_proj'};
+    for i = 1:numel(candidates)
+        fn = candidates{i};
+        if isfield(layerWeights, fn)
+            w = layerWeights.(fn);
+            cls = string(class(w));
+            if contains(lower(cls), 'quantized_weight')
+                tf = true;
+                return;
+            end
+            if isstruct(w) && isfield(w, 'QuantType')
+                tf = true;
+                return;
+            end
+        end
+    end
+end
+
+function cfg = defaultRuntimeCfg()
+    cfg = struct();
+    cfg.LinearMode = 'float';
+    cfg.TracePrecision = false;
+    cfg.TraceTensors = false;
+    cfg.Int8WeightScaleMode = 'per_row';
+    cfg.Int8ActivationScaleMode = 'per_col';
+    cfg.EnablePackedFullChain = false;
+end
+
+function merged = mergeStruct(base, override)
+    merged = base;
+    if ~isstruct(override)
+        return;
+    end
+    f = fieldnames(override);
+    for i = 1:numel(f)
+        merged.(f{i}) = override.(f{i});
     end
 end

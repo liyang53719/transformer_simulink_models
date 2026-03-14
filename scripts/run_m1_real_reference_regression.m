@@ -16,6 +16,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'verification'));
     addpath(fullfile(rootDir, 'matlab_ref'));
+    ensure_local_transformer_models_on_path(rootDir);
 
     [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options);
     fprintf('Resolved real reference source: %s\n', sourceInfo);
@@ -72,13 +73,13 @@ function [params, sourceInfo] = load_from_mat_file(paramsFile)
         return;
     end
 
-    if exist('qwen2.load', 'file') == 2
+    if symbol_exists('qwen2.load')
         params = qwen2.load(paramsFile);
         sourceInfo = sprintf('qwen2.load from mat: %s', paramsFile);
         return;
     end
 
-    if exist('qwen2_quant.load_hf_quant_matlab', 'file') == 2
+    if symbol_exists('qwen2_quant.load_hf_quant_matlab')
         params = qwen2_quant.load_hf_quant_matlab(paramsFile);
         sourceInfo = sprintf('qwen2_quant.load_hf_quant_matlab from mat: %s', paramsFile);
         return;
@@ -99,7 +100,7 @@ function [params, sourceInfo] = load_from_model_dir(modelDir, rootDir, options)
         return;
     end
 
-    if exist('qwen2_quant.load_gguf', 'file') == 2
+    if symbol_exists('qwen2_quant.load_gguf')
         ggufPath = pick_first_gguf(modelDir);
         if strlength(ggufPath) > 0
             params = qwen2_quant.load_gguf(ggufPath, 'DequantizeNow', options.PreferDequantizeNow, 'Verbose', false);
@@ -114,7 +115,7 @@ function [params, sourceInfo] = load_from_model_dir(modelDir, rootDir, options)
 end
 
 function [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir)
-    if exist('qwen2_quant.load_hf_quant_matlab', 'file') ~= 2
+    if ~symbol_exists('qwen2_quant.load_hf_quant_matlab')
         error('run_m1_real_reference_regression:MissingLoader', ...
             'qwen2_quant.load_hf_quant_matlab is required for AWQ/GPTQ model dirs.');
     end
@@ -128,7 +129,8 @@ function [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir)
     matOut = fullfile(cacheDir, [leaf '_params.mat']);
 
     if exist(matOut, 'file') ~= 2
-        if exist('qwen2_quant.prepare_hf_quant_matlab', 'file') == 2
+        if symbol_exists('qwen2_quant.prepare_hf_quant_matlab')
+            ensure_transformer_models_python_shim(rootDir);
             qwen2_quant.prepare_hf_quant_matlab(string(modelDir), string(matOut), ...
                 'LocalFilesOnly', true, 'TrustRemoteCode', true, 'HFEndpoint', "https://hf-mirror.com");
         else
@@ -163,6 +165,44 @@ function ensure_external_dependency_paths(modelDir)
     if strlength(repoRoot) > 0
         addpath(char(repoRoot));
     end
+end
+
+function ensure_local_transformer_models_on_path(rootDir)
+    localRepo = fullfile(rootDir, 'matlab_ref', 'transformer-models');
+    if exist(fullfile(localRepo, '+qwen2_quant'), 'dir') == 7
+        addpath(localRepo);
+    end
+end
+
+function tf = symbol_exists(name)
+    tf = ~isempty(which(char(name)));
+end
+
+function ensure_transformer_models_python_shim(rootDir)
+    repoRoot = fullfile(rootDir, 'matlab_ref', 'transformer-models');
+    venvPy = fullfile(repoRoot, '.venv', 'bin', 'python');
+    if exist(venvPy, 'file') == 2
+        return;
+    end
+
+    [statusPy3, py3Path] = system('command -v python3');
+    if statusPy3 ~= 0
+        [statusPy, pyPath] = system('command -v python');
+        if statusPy ~= 0
+            return;
+        end
+        resolved = strtrim(pyPath);
+    else
+        resolved = strtrim(py3Path);
+    end
+
+    binDir = fullfile(repoRoot, '.venv', 'bin');
+    if ~exist(binDir, 'dir')
+        mkdir(binDir);
+    end
+
+    cmd = sprintf('ln -sf "%s" "%s"', resolved, venvPy);
+    system(cmd);
 end
 
 function repoRoot = detect_dependency_repo_root(modelDir)

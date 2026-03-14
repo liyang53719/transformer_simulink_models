@@ -16,8 +16,8 @@ function [refFn, refInfo] = get_block_reference_fn(referenceMode, referenceConte
             refInfo = struct('mode', 'placeholder', 'reason', 'forced placeholder mode');
 
         case "real_auto"
-            hasQwen2 = exist('qwen2.layer.block', 'file') == 2;
-            hasQwen2Quant = exist('qwen2_quant.layer.block', 'file') == 2;
+            hasQwen2 = ~isempty(which('qwen2.layer.block'));
+            hasQwen2Quant = ~isempty(which('qwen2_quant.layer.block'));
 
             if (hasQwen2 || hasQwen2Quant) && isfield(referenceContext, 'Parameters')
                 refFn = @qwen2_block_ref_real_adapter;

@@ -89,9 +89,18 @@ function merged = mergeStruct(base, override)
 end
 
 function [maxAbsErr, meanAbsErr, relL2Err, matchRatio] = computeMetrics(yRef, yDut)
-    diffVal = single(yRef) - single(yDut);
+    yRef = toSingleNumeric(yRef);
+    yDut = toSingleNumeric(yDut);
+    diffVal = yRef - yDut;
     maxAbsErr = max(abs(diffVal), [], 'all');
     meanAbsErr = mean(abs(diffVal), 'all');
-    relL2Err = norm(diffVal(:), 2) / (norm(single(yRef(:)), 2) + 1e-12);
+    relL2Err = norm(diffVal(:), 2) / (norm(yRef(:), 2) + 1e-12);
     matchRatio = mean(abs(diffVal(:)) <= 3e-2);
+end
+
+function x = toSingleNumeric(x)
+    if isa(x, 'dlarray')
+        x = extractdata(x);
+    end
+    x = single(x);
 end
