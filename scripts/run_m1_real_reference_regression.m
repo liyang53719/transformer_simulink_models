@@ -90,6 +90,8 @@ function [params, sourceInfo] = load_from_mat_file(paramsFile)
 end
 
 function [params, sourceInfo] = load_from_model_dir(modelDir, rootDir, options)
+    ensure_external_dependency_paths(modelDir);
+
     nameLower = lower(string(modelDir));
 
     if contains(nameLower, 'awq') || contains(nameLower, 'gptq')
@@ -154,4 +156,38 @@ function m = localModuleMap(rootDir)
     m('module_awq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-AWQ');
     m('module_gptq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-GPTQ-Int4');
     m('module_gguf') = fullfile(moduleRoot, 'qwen_gguf');
+end
+
+function ensure_external_dependency_paths(modelDir)
+    repoRoot = detect_dependency_repo_root(modelDir);
+    if strlength(repoRoot) > 0
+        addpath(char(repoRoot));
+    end
+end
+
+function repoRoot = detect_dependency_repo_root(modelDir)
+    repoRoot = "";
+
+    canonical = string(modelDir);
+    try
+        canonical = string(char(java.io.File(modelDir).getCanonicalPath()));
+    catch
+        % Keep input path if canonical path is unavailable.
+    end
+
+    current = canonical;
+    for i = 1:8
+        if exist(fullfile(current, '+qwen2'), 'dir') == 7 || ...
+           exist(fullfile(current, '+qwen2_quant'), 'dir') == 7 || ...
+           exist(fullfile(current, '+transformer'), 'dir') == 7
+            repoRoot = current;
+            return;
+        end
+
+        parent = string(fileparts(char(current)));
+        if strlength(parent) == 0 || parent == current
+            break;
+        end
+        current = parent;
+    end
 end

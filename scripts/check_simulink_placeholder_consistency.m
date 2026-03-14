@@ -11,7 +11,7 @@ function result = check_simulink_placeholder_consistency(rootDir)
     end
 
     load_system(mdlPath);
-    mdlName = bdroot(mdlPath);
+    [~, mdlName] = fileparts(mdlPath);
 
     requiredSubs = {'rmsnorm_u','rope_u','qkv_proj_u','attention_u','ffn_swiglu_u','residual_u','kv_cache_if_u','ctrl_fsm_u'};
     requiredIn = {'in_valid','out_ready','mode_decode','start','cfg_seq_len','cfg_token_pos','cfg_eps'};

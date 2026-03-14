@@ -43,7 +43,8 @@ function create_qwen2_block_top_placeholder(rootDir)
 
     % Minimal placeholder chain for first smoke run
     add_line(mdlName, 'in_valid/1', 'ctrl_fsm_u/1', 'autorouting', 'on');
-    add_line(mdlName, 'start/1', 'ctrl_fsm_u/2', 'autorouting', 'on');
+    % start is reserved in top-level interface; current placeholder control path
+    % uses in_valid as trigger until ctrl_fsm_u internals are implemented.
     add_line(mdlName, 'ctrl_fsm_u/1', 'done/1', 'autorouting', 'on');
 
     save_system(mdlName, mdlPath);
