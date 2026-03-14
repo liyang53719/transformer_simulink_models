@@ -14,8 +14,10 @@ function result = check_simulink_placeholder_consistency(rootDir)
     [~, mdlName] = fileparts(mdlPath);
 
     requiredSubs = {'rmsnorm_u','rope_u','qkv_proj_u','attention_u','ffn_swiglu_u','residual_u','kv_cache_if_u','ctrl_fsm_u'};
-    requiredIn = {'in_valid','out_ready','mode_decode','start','cfg_seq_len','cfg_token_pos','cfg_eps'};
-    requiredOut = {'in_ready','out_valid','done','kv_cache_wr_en'};
+    requiredIn = {'clk','rst_n','mode_decode','start','eos_in','in_valid','out_ready', ...
+        'in_hidden','in_residual','kv_cache_rd_data','kv_cache_rd_valid', ...
+        'cfg_seq_len','cfg_token_pos','cfg_eps'};
+    requiredOut = {'done','eos_out','in_ready','out_valid','out_hidden','kv_cache_wr_data','kv_cache_wr_en'};
 
     result = struct();
     result.model = mdlName;

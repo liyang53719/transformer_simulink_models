@@ -20,8 +20,10 @@ function create_qwen2_block_top_placeholder(rootDir)
     new_system(mdlName);
     open_system(mdlName);
 
-    inports = {'in_valid','out_ready','mode_decode','start','cfg_seq_len','cfg_token_pos','cfg_eps'};
-    outports = {'in_ready','out_valid','done','kv_cache_wr_en'};
+    inports = {'clk','rst_n','mode_decode','start','eos_in','in_valid','out_ready', ...
+        'in_hidden','in_residual','kv_cache_rd_data','kv_cache_rd_valid', ...
+        'cfg_seq_len','cfg_token_pos','cfg_eps'};
+    outports = {'done','eos_out','in_ready','out_valid','out_hidden','kv_cache_wr_data','kv_cache_wr_en'};
 
     for i = 1:numel(inports)
         add_block('simulink/Sources/In1', [mdlName '/' inports{i}], ...

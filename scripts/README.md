@@ -14,13 +14,19 @@
   - `run_m1_real_reference_regression('module_awq','ReportDir','verification/reports')`
 - 生成 Simulink 顶层占位模型：
   - `create_qwen2_block_top_placeholder`
+- 实装 stage-1 子系统（rmsnorm_u + qkv_proj_u）：
+  - `implement_stage1_rmsnorm_qkv`
 - 检查 Simulink 占位一致性：
   - `check_simulink_placeholder_consistency`
+- 检查顶层接口与冻结规格一致性：
+  - `check_block_interface_spec_consistency`
 
 ## 推荐顺序
 1. `create_qwen2_block_top_placeholder`
-2. `check_simulink_placeholder_consistency`
-3. `run_m1_minimal_regression`
+2. `implement_stage1_rmsnorm_qkv`
+3. `check_simulink_placeholder_consistency`
+4. `check_block_interface_spec_consistency`
+5. `run_m1_minimal_regression`
 
 若要接入已有推理实现进行真实 block 参考对比：
 1. 将 `+qwen2` 或 `+qwen2_quant` 加入 MATLAB path
