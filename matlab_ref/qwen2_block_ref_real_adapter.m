@@ -141,7 +141,7 @@ end
 
 function cfg = defaultRuntimeCfg()
     cfg = struct();
-    cfg.LinearMode = 'float';
+    cfg.LinearMode = 'gptq_int4_matlab_sim';
     cfg.TracePrecision = false;
     cfg.TraceTensors = false;
     cfg.Int8WeightScaleMode = 'per_row';

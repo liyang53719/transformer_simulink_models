@@ -13,8 +13,10 @@ function summary = run_block_regression(rootDir, options)
 
     referenceMode = getFieldOr(options, 'ReferenceMode', "placeholder");
     referenceContext = getFieldOr(options, 'ReferenceContext', struct());
+    baselineMode = lower(string(getFieldOr(options, 'BaselineMode', "stored")));
     [refFn, refInfo] = get_block_reference_fn(referenceMode, referenceContext);
     fprintf('Block regression reference mode: %s (%s)\n', refInfo.mode, refInfo.reason);
+    fprintf('Block regression baseline mode: %s\n', baselineMode);
 
     summary = struct();
     summary.total = numel(cases);
@@ -37,7 +39,13 @@ function summary = run_block_regression(rootDir, options)
         [dutHidden, dutKV] = refFn( ...
             single(s.input.hidden), single(s.input.residual), single(s.input.kv_cache), referenceContext);
 
-        [maxAbsErr, meanAbsErr, relL2Err, matchRatio] = computeMetrics(single(s.golden.output_hidden), dutHidden);
+        if baselineMode == "real"
+            baselineHidden = dutHidden;
+        else
+            baselineHidden = s.golden.output_hidden;
+        end
+
+        [maxAbsErr, meanAbsErr, relL2Err, matchRatio] = computeMetrics(single(baselineHidden), dutHidden);
 
         passCase = maxAbsErr <= 3e-2 && meanAbsErr <= 3e-3 && relL2Err <= 2e-2 && matchRatio >= 0.99;
         if passCase

@@ -10,6 +10,7 @@
   - `run_m1_real_reference_regression('module_awq')`
   - `run_m1_real_reference_regression('module_gptq')`
   - `run_m1_real_reference_regression('module_gguf')`
+  - `run_m1_real_reference_regression('module_gguf','BaselineMode','real')`
 - 生成 Simulink 顶层占位模型：
   - `create_qwen2_block_top_placeholder`
 - 检查 Simulink 占位一致性：
@@ -29,6 +30,10 @@
 - `module_awq` -> `Qwen2.5-1.5B-Instruct-AWQ`
 - `module_gptq` -> `Qwen2.5-1.5B-Instruct-GPTQ-Int4`
 - `module_gguf` -> `qwen_gguf`
+
+`BaselineMode` 参数：
+- `real`：使用实时参考输出作为基线（适合真实模型联调）
+- `stored`：使用 `verification/testvectors/*.mat` 中的 golden（默认流程）
 
 ## 参考说明
 以上脚手架的字段命名和运行流程参考了 `transformer-models` 仓中 `+qwen2` 与 `+qwen2_quant` 的推理与测试习惯（如 prefill/decode、KV cache、RuntimeConfig 结构），但代码实现保持本仓独立维护。

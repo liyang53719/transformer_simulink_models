@@ -31,3 +31,4 @@ reports/
 # Local external dependency clone and generated vectors
 matlab_ref/transformer-models/
 verification/testvectors/*.mat
+matlab_ref/cache/*.mat

@@ -9,6 +9,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
         paramsFileOrModule (1,:) char
         options.LayerIndex (1,1) double = 1
         options.PreferDequantizeNow (1,1) logical = false
+        options.BaselineMode (1,:) char = 'real'
     end
 
     rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -37,6 +38,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     regOpt = struct();
     regOpt.ReferenceMode = "real_auto";
     regOpt.ReferenceContext = refCtx;
+    regOpt.BaselineMode = string(options.BaselineMode);
 
     run_m1_minimal_regression(struct('VectorOptions', vecOpt, 'RegressionOptions', regOpt));
 end
