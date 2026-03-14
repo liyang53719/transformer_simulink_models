@@ -15,6 +15,10 @@
 - 长期主线任务：`docs/01_mainline_plan.md`
 - 实时状态跟进：`docs/02_live_status.md`
 - 版本提交与推送规则：`docs/03_git_workflow_rules.md`
+- M1 执行计划：`docs/04_m1_execution_plan.md`
+- M1 Block 接口规格：`docs/05_m1_block_interface_spec.md`
+- M1 测试向量与误差预算：`docs/06_m1_testvector_error_budget.md`
+- M1 Simulink 顶层占位清单：`docs/07_m1_simulink_top_placeholder.md`
 
 ## 开发原则
 - 先正确，再优化：先打通功能闭环，再推进吞吐优化。
