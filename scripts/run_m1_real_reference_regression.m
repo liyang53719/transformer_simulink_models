@@ -10,6 +10,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
         options.LayerIndex (1,1) double = 1
         options.PreferDequantizeNow (1,1) logical = false
         options.BaselineMode (1,:) char = 'real'
+        options.EnableMemoryMetrics (1,1) logical = false
         options.ReportDir (1,:) char = ''
     end
 
@@ -40,6 +41,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     regOpt.ReferenceMode = "real_auto";
     regOpt.ReferenceContext = refCtx;
     regOpt.BaselineMode = string(options.BaselineMode);
+    regOpt.EnableMemoryMetrics = options.EnableMemoryMetrics;
 
     reportDir = string(options.ReportDir);
     if strlength(reportDir) == 0
@@ -47,7 +49,8 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     end
 
     safeToken = regexprep(string(paramsFileOrModule), '[^a-zA-Z0-9_\-]+', '_');
-    reportTag = "m1_real_" + safeToken + "_" + lower(string(options.BaselineMode));
+    modeTag = ternary(options.EnableMemoryMetrics, "mem_on", "mem_off");
+    reportTag = "m1_real_" + safeToken + "_" + lower(string(options.BaselineMode)) + "_" + modeTag;
 
     run_m1_minimal_regression(struct( ...
         'VectorOptions', vecOpt, ...
@@ -58,7 +61,6 @@ end
 
 function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options)
     token = string(paramsFileOrModule);
-    sourceInfo = '';
 
     moduleMap = localModuleMap(rootDir);
     if isKey(moduleMap, lower(token))
@@ -77,6 +79,14 @@ function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule,
 
     error('run_m1_real_reference_regression:InputNotFound', ...
         'Input not found as .mat file or directory: %s', char(token));
+end
+
+function out = ternary(cond, whenTrue, whenFalse)
+    if cond
+        out = whenTrue;
+    else
+        out = whenFalse;
+    end
 end
 
 function [params, sourceInfo] = load_from_mat_file(paramsFile)

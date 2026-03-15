@@ -9,7 +9,10 @@ function summary = run_block_regression(rootDir, options)
     end
 
     tvDir = fullfile(rootDir, 'verification', 'testvectors');
-    cases = {'block_prefill_case01.mat', 'block_decode_case01.mat'};
+    allCases = {'block_prefill_case01.mat', 'block_decode_case01.mat'};
+    modeSet = lower(string(getFieldOr(options, 'ModeSet', "both")));
+    enableMemoryMetrics = logical(getFieldOr(options, 'EnableMemoryMetrics', false));
+    cases = selectCasesByMode(allCases, modeSet);
 
     referenceMode = getFieldOr(options, 'ReferenceMode', "placeholder");
     referenceContext = getFieldOr(options, 'ReferenceContext', struct());
@@ -22,8 +25,18 @@ function summary = run_block_regression(rootDir, options)
     summary.total = numel(cases);
     summary.pass = 0;
     summary.fail = 0;
+    summary.mode_set = char(modeSet);
+    summary.memory_metrics_enabled = enableMemoryMetrics;
     summary.details = repmat(struct('case_id', '', 'result', '', 'max_abs_err', 0, ...
-        'mean_abs_err', 0, 'rel_l2_err', 0, 'match_ratio', 0), [1, numel(cases)]);
+        'mean_abs_err', 0, 'rel_l2_err', 0, 'match_ratio', 0, 'mode', '', ...
+        'latency_cycle_est', 0, 'memory_bw_mb_s', NaN, 'stall_count', NaN), [1, numel(cases)]);
+
+    summary.memory_metrics = struct( ...
+        'available', false, ...
+        'master_bw_mb_s', struct(), ...
+        'stall_count', NaN, ...
+        'dropped_burst_count', NaN, ...
+        'reason', 'memory metrics not enabled');
 
     cfg = struct('ResidualScale', single(0.1), 'KvMixScale', single(0.05));
     referenceContext = mergeStruct(cfg, referenceContext);
@@ -36,6 +49,7 @@ function summary = run_block_regression(rootDir, options)
 
         s = load(casePath);
         referenceContext.TokenPos = s.meta.token_pos;
+        modeText = caseModeFromName(cases{i});
         [dutHidden, dutKV] = refFn( ...
             single(s.input.hidden), single(s.input.residual), single(s.input.kv_cache), referenceContext);
 
@@ -66,6 +80,13 @@ function summary = run_block_regression(rootDir, options)
         summary.details(i).mean_abs_err = meanAbsErr;
         summary.details(i).rel_l2_err = relL2Err;
         summary.details(i).match_ratio = matchRatio;
+        summary.details(i).mode = modeText;
+        summary.details(i).latency_cycle_est = 0;
+
+        if enableMemoryMetrics
+            summary.details(i).memory_bw_mb_s = NaN;
+            summary.details(i).stall_count = 0;
+        end
 
         fprintf('Case %s: %s (max=%.4g mean=%.4g relL2=%.4g match=%.2f%%)\n', ...
             s.meta.case_id, resultText, maxAbsErr, meanAbsErr, relL2Err, 100*matchRatio);
@@ -74,7 +95,35 @@ function summary = run_block_regression(rootDir, options)
     fprintf('Block regression summary: pass=%d fail=%d total=%d\n', ...
         summary.pass, summary.fail, summary.total);
 
+    if enableMemoryMetrics
+        summary.memory_metrics.reason = 'memory metrics enabled, awaiting external DDR model integration';
+    end
+
     assert(summary.fail == 0, 'Block regression failed.');
+end
+
+function cases = selectCasesByMode(allCases, modeSet)
+    switch modeSet
+        case "prefill"
+            cases = allCases(contains(allCases, 'prefill'));
+        case "decode"
+            cases = allCases(contains(allCases, 'decode'));
+        case "both"
+            cases = allCases;
+        otherwise
+            error('run_block_regression:InvalidModeSet', ...
+                'Unsupported ModeSet: %s (expected prefill/decode/both).', char(modeSet));
+    end
+end
+
+function modeText = caseModeFromName(caseName)
+    if contains(caseName, 'prefill')
+        modeText = 'prefill';
+    elseif contains(caseName, 'decode')
+        modeText = 'decode';
+    else
+        modeText = 'unknown';
+    end
 end
 
 function out = getFieldOr(s, name, defaultValue)

@@ -1,9 +1,14 @@
-function implement_stage1_rmsnorm_qkv(rootDir)
-%IMPLEMENT_STAGE1_RMSNORM_QKV Build runnable stage-1 internals for rmsnorm_u and qkv_proj_u.
+function implement_stage1_rmsnorm_qkv(rootDir, options)
+%IMPLEMENT_STAGE1_RMSNORM_QKV Build staged internals for qwen2_block_top.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
     end
+    if nargin < 2 || ~isstruct(options)
+        options = struct();
+    end
+
+    stageProfile = lower(string(getFieldOr(options, 'StageProfile', 'stage1')));
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     if ~exist(mdlPath, 'file')
@@ -16,7 +21,17 @@ function implement_stage1_rmsnorm_qkv(rootDir)
     configure_rmsnorm([mdlName '/rmsnorm_u']);
     configure_qkv_proj([mdlName '/qkv_proj_u']);
 
-    % Rebuild stage-1 top data/control pass-through lines (safe add).
+    build_prefill_path(mdlName);
+    build_decode_path(mdlName, stageProfile);
+    build_kv_memory_stubs(mdlName, stageProfile);
+
+    save_system(mdlName, mdlPath);
+    close_system(mdlName, 0);
+
+    fprintf('Implemented %s internals for rmsnorm_u and qkv_proj_u in %s\n', stageProfile, mdlPath);
+end
+
+function build_prefill_path(mdlName)
     safe_add_line(mdlName, 'in_hidden/1', 'rmsnorm_u/1');
     safe_add_line(mdlName, 'cfg_eps/1', 'rmsnorm_u/2');
     safe_add_line(mdlName, 'rmsnorm_u/1', 'qkv_proj_u/1');
@@ -24,14 +39,25 @@ function implement_stage1_rmsnorm_qkv(rootDir)
 
     safe_add_line(mdlName, 'in_valid/1', 'out_valid/1');
     safe_add_line(mdlName, 'out_ready/1', 'in_ready/1');
+end
+
+function build_decode_path(mdlName, stageProfile)
+    if stageProfile == "stage2_memory_ready"
+        % Stage-2 keeps the default data path but reserves hooks for decode scheduling.
+        safe_add_line(mdlName, 'mode_decode/1', 'ctrl_fsm_u/1');
+        safe_add_line(mdlName, 'start/1', 'ctrl_fsm_u/2');
+    end
+end
+
+function build_kv_memory_stubs(mdlName, stageProfile)
     safe_add_line(mdlName, 'kv_cache_rd_data/1', 'kv_cache_wr_data/1');
     safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'kv_cache_wr_en/1');
     safe_add_line(mdlName, 'eos_in/1', 'eos_out/1');
 
-    save_system(mdlName, mdlPath);
-    close_system(mdlName, 0);
-
-    fprintf('Implemented stage-1 runnable internals for rmsnorm_u and qkv_proj_u in %s\n', mdlPath);
+    if stageProfile == "stage2_memory_ready"
+        % Reserve no-op connectivity points for future AXI/DDR path integration.
+        safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'ctrl_fsm_u/3');
+    end
 end
 
 function configure_rmsnorm(subPath)
@@ -93,5 +119,13 @@ function safe_add_line(sys, src, dst)
         add_line(sys, src, dst, 'autorouting', 'on');
     catch
         % Ignore duplicate or auto-route conflicts during incremental rebuild.
+    end
+end
+
+function out = getFieldOr(s, name, defaultValue)
+    if isfield(s, name)
+        out = s.(name);
+    else
+        out = defaultValue;
     end
 end

@@ -20,11 +20,29 @@
 2. `create_qwen2_block_top_placeholder;`
 3. `check_simulink_placeholder_consistency;`
 4. `run_m1_minimal_regression;`
+5. `run_m1_minimal_regression(struct('RegressionOptions', struct('EnableMemoryMetrics', true)));`
+
+真实参考路径建议使用 name-value 调用方式：
+- `scripts.run_m1_real_reference_regression('module_awq', 'EnableMemoryMetrics', true)`
+- `scripts.run_m1_real_reference_regression('module_gptq', 'EnableMemoryMetrics', true)`
+- `scripts.run_m1_real_reference_regression('module_gguf', 'EnableMemoryMetrics', true)`
 
 ## 4. 通过标准
 - 占位模型创建成功并通过一致性检查。
 - 算子 smoke test PASS。
 - block regression PASS。
+- memory-model-check PASS（若启用 `EnableMemoryMetrics=true`）。
+
+说明：当前版本在未接入外部 DDR 统计采集前，`memory-model-check` 允许“软通过”：
+- `memory_gate.pass = true`
+- `memory_gate.reason = "memory metrics unavailable; functional gate only"`
+
+## 4.1 访存门禁（V2）
+- `memory_metrics.master_bw_mb_s.<master_name> >= memory_bw_min_mb_s`
+- `memory_metrics.stall_count <= memory_stall_max_count`
+- `memory_metrics.dropped_burst_count <= memory_dropped_burst_max_count`
+
+若未启用内存建模，则允许 `memory_metrics` 为空，并仅执行功能门禁。
 
 ## 5. 后续替换策略
 - 当真实 block 参考函数可用后，用真实实现替换 `qwen2_block_ref_placeholder`。
@@ -34,3 +52,11 @@
 - 通过 `run_m1_real_reference_regression(paramsFile)` 可优先尝试接入已有 `+qwen2` / `+qwen2_quant` 的 block 实现。
 - 若 MATLAB path 或参数结构不满足要求，会自动报错提示并可退回 placeholder 模式。
 - 支持 module 别名输入：`module_awq`、`module_gptq`、`module_gguf`，自动映射到 `matlab_ref/module` 下对应目录。
+
+## 7. 报告字段约定（新增）
+最小回归 JSON 报告在保持原字段兼容的前提下新增：
+- `memory_metrics.master_bw_mb_s`：结构体，记录各 master 的 MB/s
+- `memory_metrics.stall_count`：整数，事务阻塞计数
+- `memory_metrics.dropped_burst_count`：整数，丢突发计数
+- `memory_gate.pass`：布尔，访存门禁结果
+- `memory_gate.reason`：字符串，失败原因或降级说明
