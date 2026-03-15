@@ -85,3 +85,13 @@
 3. 占位模型可执行一次空跑仿真
 4. 接口名称与 `docs/05_m1_block_interface_spec.md` 一致
 5. V2 预留端口在模型中可见（即使暂未驱动真实事务）
+
+## 9. 参考模型映射（soc_image_rotation_fpga）
+参考文件：`simulink/ref/soc_image_rotation_fpga.slx`
+
+由于版本兼容限制，本仓库采用解包方式提取了 3 个关键 fcn 作为映射参考：
+- `simulink/ref/axi_fcn_read_controller_ref.m`
+- `simulink/ref/axi_fcn_write_controller_ref.m`
+- `simulink/ref/axi_fcn_buffer_reader_ref.m`
+
+当前 `axi_master_rd_u`、`axi_master_wr_u`、`ddr_model_if_u` 使用可综合友好的基础块搭建，并保留与上述 fcn 一致的接口语义，便于后续替换为完整 AXI 控制器实现。

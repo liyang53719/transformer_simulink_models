@@ -19,8 +19,10 @@
 1. `addpath('scripts'); addpath('verification'); addpath('matlab_ref');`
 2. `create_qwen2_block_top_placeholder;`
 3. `check_simulink_placeholder_consistency;`
-4. `run_m1_minimal_regression;`
-5. `run_m1_minimal_regression(struct('RegressionOptions', struct('EnableMemoryMetrics', true)));`
+4. `implement_stage1_rmsnorm_qkv('', struct('StageProfile','stage2_memory_ready'));`
+5. `check_block_interface_spec_consistency('', struct('Profile','v2_memory_first'));`
+6. `run_m1_minimal_regression;`
+7. `run_m1_minimal_regression(struct('RegressionOptions', struct('EnableMemoryMetrics', true)));`
 
 真实参考路径建议使用 name-value 调用方式：
 - `scripts.run_m1_real_reference_regression('module_awq', 'EnableMemoryMetrics', true)`
@@ -33,9 +35,10 @@
 - block regression PASS。
 - memory-model-check PASS（若启用 `EnableMemoryMetrics=true`）。
 
-说明：当前版本在未接入外部 DDR 统计采集前，`memory-model-check` 允许“软通过”：
+说明：当前版本已升级为硬门禁，启用 `EnableMemoryMetrics=true` 时必须提供实值指标：
+- `memory_metrics.available = true`
 - `memory_gate.pass = true`
-- `memory_gate.reason = "memory metrics unavailable; functional gate only"`
+- 若指标缺失，则 `memory_gate.pass = false`
 
 ## 4.1 访存门禁（V2）
 - `memory_metrics.master_bw_mb_s.<master_name> >= memory_bw_min_mb_s`
@@ -60,3 +63,5 @@
 - `memory_metrics.dropped_burst_count`：整数，丢突发计数
 - `memory_gate.pass`：布尔，访存门禁结果
 - `memory_gate.reason`：字符串，失败原因或降级说明
+
+其中 `run_memory_model_check` 当前采用“测试向量 + AXI burst 传输模型”生成实值指标，后续可无缝替换为 SoC Blockset DDR 实测采集。

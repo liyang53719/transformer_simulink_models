@@ -26,12 +26,18 @@ function result = run_m1_minimal_regression(options)
     fprintf('Step 3/%d: block regression\n', totalSteps);
     blockSummary = run_block_regression(rootDir, regOpt);
 
-    memoryMetrics = getFieldOr(blockSummary, 'memory_metrics', struct());
+    if enableMemoryMetrics
+        memOpt = getFieldOr(options, 'MemoryModelOptions', struct());
+        memoryMetrics = run_memory_model_check(rootDir, memOpt);
+    else
+        memoryMetrics = getFieldOr(blockSummary, 'memory_metrics', struct());
+    end
+
     memoryGate = evaluate_memory_gate(memoryMetrics, options, enableMemoryMetrics);
 
     if enableMemoryMetrics
         fprintf('Step 4/%d: memory-model-check\n', totalSteps);
-        fprintf('Memory gate: %s (%s)\n', ternary(memoryGate.pass, 'PASS', 'SOFT-PASS'), memoryGate.reason);
+        fprintf('Memory gate: %s (%s)\n', ternary(memoryGate.pass, 'PASS', 'FAIL'), memoryGate.reason);
     end
 
     result = struct();
@@ -65,8 +71,8 @@ function gate = evaluate_memory_gate(memoryMetrics, options, enableMemoryMetrics
 
     if ~isstruct(memoryMetrics) || isempty(fieldnames(memoryMetrics)) || ...
        ~isfield(memoryMetrics, 'available') || ~memoryMetrics.available
-        gate.pass = true;
-        gate.reason = 'memory metrics unavailable; functional gate only';
+        gate.pass = false;
+        gate.reason = 'memory metrics unavailable while memory gate is enabled';
         return;
     end
 
