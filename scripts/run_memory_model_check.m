@@ -1,9 +1,8 @@
 function metrics = run_memory_model_check(rootDir, options)
 %RUN_MEMORY_MODEL_CHECK Collect DDR-related metrics from vector workload.
 %
-% The metrics are derived from real regression vectors and a deterministic
-% AXI-like transfer model (burst + overhead). This provides concrete values
-% for hard-gate checks before full SoC DDR instrumentation is wired in.
+% Preferred path uses SoC Blockset probe simulation. Fallback uses a
+% deterministic AXI-like transfer model if SoC probe cannot run.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -22,6 +21,9 @@ function metrics = run_memory_model_check(rootDir, options)
     prefill = load(prefillPath);
     decode = load(decodePath);
 
+    preferSoCProbe = logical(getFieldOr(options, 'PreferSoCProbe', true));
+    requireSoCProbe = logical(getFieldOr(options, 'RequireSoCProbe', false));
+
     clockHz = double(getFieldOr(options, 'ClockHz', 1e9));
     busWidthBytes = double(getFieldOr(options, 'BusWidthBytes', 16));
     burstLenBeats = double(getFieldOr(options, 'BurstLenBeats', 128));
@@ -39,6 +41,39 @@ function metrics = run_memory_model_check(rootDir, options)
     bytesKVWrite = kvWriteElems * bytesPerValue;
     bytesWeight = hiddenElems * bytesPerValue;
     bytesAct = residualElems * bytesPerValue;
+
+    if preferSoCProbe
+        socOpt = struct();
+        socOpt.ClockHz = clockHz;
+        socOpt.ControllerFrequencyMHz = double(getFieldOr(options, 'ControllerFrequencyMHz', 200));
+        socOpt.ControllerDataWidth = double(getFieldOr(options, 'ControllerDataWidth', 64));
+        socOpt.BurstSizeBytes = double(getFieldOr(options, 'BurstSizeBytes', 1024));
+        socOpt.KVReadBytes = bytesKVRead;
+        socOpt.KVWriteBytes = bytesKVWrite;
+        socOpt.WeightBytes = bytesWeight;
+        try
+            metrics = run_soc_memory_model_check(socOpt);
+            metrics.activation_bytes = bytesAct;
+            if isfield(metrics, 'master_bw_mb_s') && isstruct(metrics.master_bw_mb_s)
+                if isfield(metrics, 'total_cycles') && isfield(metrics, 'clock_hz') && metrics.clock_hz > 0
+                    secMeasured = double(metrics.total_cycles) / double(metrics.clock_hz);
+                else
+                    secMeasured = 0;
+                end
+                if secMeasured > 0
+                    metrics.master_bw_mb_s.activation_stream = bytesAct / secMeasured / 1e6;
+                end
+            end
+            return;
+        catch ME
+            if requireSoCProbe
+                rethrow(ME);
+            end
+            fallbackReason = ['soc probe failed: ' ME.message];
+        end
+    else
+        fallbackReason = 'soc probe disabled by option';
+    end
 
     [cyclesKVRead, droppedKVRead] = estimateAxiCycles(bytesKVRead, busWidthBytes, burstLenBeats, burstOverheadCycles);
     [cyclesKVWrite, droppedKVWrite] = estimateAxiCycles(bytesKVWrite, busWidthBytes, burstLenBeats, burstOverheadCycles);
@@ -60,7 +95,8 @@ function metrics = run_memory_model_check(rootDir, options)
     metrics.total_cycles = totalCycles;
     metrics.stall_count = max(0, round((cyclesKVRead + cyclesKVWrite + cyclesWeight) - 3 * totalCycles));
     metrics.dropped_burst_count = droppedKVRead + droppedKVWrite + droppedWeight;
-    metrics.reason = 'derived from testvector workload and AXI burst transfer model';
+    metrics.reason = ['derived from testvector workload and AXI burst transfer model (' fallbackReason ')'];
+    metrics.source = 'deterministic_fallback';
 end
 
 function n = kv_elem_count(kv)
