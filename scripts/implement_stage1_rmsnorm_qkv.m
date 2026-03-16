@@ -49,10 +49,10 @@ function build_prefill_path(mdlName, stageProfile)
     if stageProfile == "stage2_memory_ready"
         safe_add_line(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
         safe_add_line(mdlName, 'mode_decode/1', 'kv_cache_if_u/3');
-        safe_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
-        safe_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
-        safe_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
-        safe_add_line(mdlName, 'residual_u/1', 'out_hidden/1');
+        force_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
+        force_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
+        force_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
+        force_add_line(mdlName, 'residual_u/1', 'out_hidden/1');
     else
         safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
     end
@@ -363,6 +363,24 @@ function safe_add_line(sys, src, dst)
     catch
         % Ignore duplicate or auto-route conflicts during incremental rebuild.
     end
+end
+
+function force_add_line(sys, src, dst)
+    dstParts = split(string(dst), '/');
+    dstBlk = [sys '/' char(dstParts(1))];
+    dstPort = str2double(dstParts(2));
+    try
+        ph = get_param(dstBlk, 'PortHandles');
+        if numel(ph.Inport) >= dstPort
+            inH = ph.Inport(dstPort);
+            oldLine = get_param(inH, 'Line');
+            if oldLine ~= -1
+                delete_line(oldLine);
+            end
+        end
+    catch
+    end
+    safe_add_line(sys, src, dst);
 end
 
 function out = getFieldOr(s, name, defaultValue)
