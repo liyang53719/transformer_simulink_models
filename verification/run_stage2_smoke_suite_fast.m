@@ -17,6 +17,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
+    rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', false));
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
@@ -26,10 +27,11 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 
     summary = struct();
     summary.default_decode = rDecodeDefault;
+    summary.default_weight_path = rWeightPath;
     summary.default_axi_rd = rAxiRd;
     summary.default_axi_wr = rAxiWr;
     summary.variant_decode = rDecodeVariant;
-    summary.pass = rDecodeDefault.pass && rAxiRd.pass && rAxiWr.pass && rDecodeVariant.pass;
+    summary.pass = rDecodeDefault.pass && rWeightPath.pass && rAxiRd.pass && rAxiWr.pass && rDecodeVariant.pass;
 
     if summary.pass
         fprintf('Stage2 fast smoke suite PASS\n');
