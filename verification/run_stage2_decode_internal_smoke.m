@@ -39,7 +39,7 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     end
 
     kvAddrPath = [mdlName '/kv_addr_gen_u'];
-    kvAddrBlocks = {'rd_addr_scale', 'wr_addr_scale', 'wr_addr_add'};
+    kvAddrBlocks = {'rd_addr_scale', 'rd_addr_mode_sel', 'wr_addr_scale', 'wr_addr_mode_sel', 'rd_len_mode_sel', 'wr_len_mode_sel'};
     missingKvAddrBlocks = {};
     for i = 1:numel(kvAddrBlocks)
         if isempty(find_system(kvAddrPath, 'SearchDepth', 1, 'Name', kvAddrBlocks{i}))

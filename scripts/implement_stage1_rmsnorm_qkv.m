@@ -274,29 +274,67 @@ function configure_kv_addr_gen(subPath)
     add_block('simulink/Sources/In1', [subPath '/seq_len'], 'Position', [20, 80, 50, 94]);
     add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 120, 50, 134]);
 
-    add_block('simulink/Math Operations/Gain', [subPath '/rd_addr_scale'], ...
-        'Gain', '2', 'Position', [120, 35, 180, 60]);
-    add_block('simulink/Math Operations/Gain', [subPath '/wr_addr_scale'], ...
-        'Gain', '2', 'Position', [120, 85, 180, 110]);
-    add_block('simulink/Math Operations/Add', [subPath '/wr_addr_add'], ...
-        'Inputs', '++', 'Position', [210, 80, 240, 115]);
     add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
-        'Value', '1', 'Position', [120, 130, 160, 150]);
+        'Value', '1', 'Position', [90, 150, 130, 170]);
 
-    add_block('simulink/Sinks/Out1', [subPath '/rd_addr'], 'Position', [330, 30, 360, 44]);
-    add_block('simulink/Sinks/Out1', [subPath '/rd_len'], 'Position', [330, 70, 360, 84]);
-    add_block('simulink/Sinks/Out1', [subPath '/wr_addr'], 'Position', [330, 110, 360, 124]);
-    add_block('simulink/Sinks/Out1', [subPath '/wr_len'], 'Position', [330, 150, 360, 164]);
+    add_block('simulink/Math Operations/Add', [subPath '/rd_tok_prev'], ...
+        'Inputs', '+-', 'Position', [150, 30, 180, 55]);
+    add_block('simulink/Discontinuities/Saturation', [subPath '/rd_tok_prev_sat'], ...
+        'UpperLimit', 'inf', 'LowerLimit', '0', 'Position', [210, 30, 240, 55]);
+    add_block('simulink/Math Operations/Gain', [subPath '/rd_addr_scale'], ...
+        'Gain', '2', 'Position', [280, 35, 340, 60]);
+    add_block('simulink/Math Operations/Gain', [subPath '/rd_addr_prefill_scale'], ...
+        'Gain', '2', 'Position', [280, 85, 340, 110]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/rd_addr_mode_sel'], ...
+        'Threshold', '0.5', 'Position', [390, 45, 440, 125]);
 
-    safe_add_line(subPath, 'token_pos/1', 'rd_addr_scale/1');
-    safe_add_line(subPath, 'rd_addr_scale/1', 'rd_addr/1');
-    safe_add_line(subPath, 'seq_len/1', 'rd_len/1');
+    add_block('simulink/Math Operations/Add', [subPath '/wr_tok_next'], ...
+        'Inputs', '++', 'Position', [150, 105, 180, 130]);
+    add_block('simulink/Math Operations/Gain', [subPath '/wr_addr_scale'], ...
+        'Gain', '2', 'Position', [280, 145, 340, 170]);
+    add_block('simulink/Math Operations/Gain', [subPath '/wr_addr_add'], ...
+        'Gain', '2', 'Position', [280, 190, 340, 215]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/wr_addr_mode_sel'], ...
+        'Threshold', '0.5', 'Position', [390, 145, 440, 225]);
+
+    add_block('simulink/Signal Routing/Switch', [subPath '/rd_len_mode_sel'], ...
+        'Threshold', '0.5', 'Position', [505, 60, 555, 140]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/wr_len_mode_sel'], ...
+        'Threshold', '0.5', 'Position', [505, 155, 555, 235]);
+
+    add_block('simulink/Sinks/Out1', [subPath '/rd_addr'], 'Position', [620, 60, 650, 74]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_len'], 'Position', [620, 100, 650, 114]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_addr'], 'Position', [620, 175, 650, 189]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_len'], 'Position', [620, 215, 650, 229]);
+
+    safe_add_line(subPath, 'token_pos/1', 'rd_tok_prev/1');
+    safe_add_line(subPath, 'one_const/1', 'rd_tok_prev/2');
+    safe_add_line(subPath, 'rd_tok_prev/1', 'rd_tok_prev_sat/1');
+    safe_add_line(subPath, 'rd_tok_prev_sat/1', 'rd_addr_scale/1');
+    safe_add_line(subPath, 'token_pos/1', 'rd_addr_prefill_scale/1');
+    safe_add_line(subPath, 'rd_addr_scale/1', 'rd_addr_mode_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'rd_addr_mode_sel/2');
+    safe_add_line(subPath, 'rd_addr_prefill_scale/1', 'rd_addr_mode_sel/3');
+    safe_add_line(subPath, 'rd_addr_mode_sel/1', 'rd_addr/1');
 
     safe_add_line(subPath, 'token_pos/1', 'wr_addr_scale/1');
-    safe_add_line(subPath, 'wr_addr_scale/1', 'wr_addr_add/1');
-    safe_add_line(subPath, 'one_const/1', 'wr_addr_add/2');
-    safe_add_line(subPath, 'wr_addr_add/1', 'wr_addr/1');
-    safe_add_line(subPath, 'seq_len/1', 'wr_len/1');
+    safe_add_line(subPath, 'token_pos/1', 'wr_tok_next/1');
+    safe_add_line(subPath, 'one_const/1', 'wr_tok_next/2');
+    safe_add_line(subPath, 'wr_tok_next/1', 'wr_addr_add/1');
+    safe_add_line(subPath, 'wr_addr_add/1', 'wr_addr_mode_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'wr_addr_mode_sel/2');
+    safe_add_line(subPath, 'wr_addr_scale/1', 'wr_addr_mode_sel/3');
+    safe_add_line(subPath, 'wr_addr_mode_sel/1', 'wr_addr/1');
+
+    safe_add_line(subPath, 'one_const/1', 'rd_len_mode_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'rd_len_mode_sel/2');
+    safe_add_line(subPath, 'seq_len/1', 'rd_len_mode_sel/3');
+    safe_add_line(subPath, 'rd_len_mode_sel/1', 'rd_len/1');
+
+    safe_add_line(subPath, 'one_const/1', 'wr_len_mode_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'wr_len_mode_sel/2');
+    safe_add_line(subPath, 'seq_len/1', 'wr_len_mode_sel/3');
+    safe_add_line(subPath, 'wr_len_mode_sel/1', 'wr_len/1');
 end
 
 function configure_rmsnorm(subPath)
