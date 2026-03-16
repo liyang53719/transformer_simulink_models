@@ -22,14 +22,11 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     configure_qkv_proj([mdlName '/qkv_proj_u']);
 
     if stageProfile == "stage2_memory_ready"
-            ensure_base_param('kv_rd_base', 0);
-            ensure_base_param('kv_wr_base', 0);
-            ensure_base_param('kv_stride_bytes', 2);
-            ensure_base_param('decode_burst_len', 1);
+        kvCfg = resolve_kv_addr_config(options);
         ensure_stage2_ports(mdlName);
         ensure_memory_subsystems(mdlName);
         configure_kv_cache_if([mdlName '/kv_cache_if_u']);
-        configure_kv_addr_gen([mdlName '/kv_addr_gen_u']);
+        configure_kv_addr_gen([mdlName '/kv_addr_gen_u'], kvCfg);
         configure_axi_master_rd([mdlName '/axi_master_rd_u']);
         configure_axi_master_wr([mdlName '/axi_master_wr_u']);
         configure_ddr_model_if([mdlName '/ddr_model_if_u']);
@@ -45,10 +42,18 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     fprintf('Implemented %s internals for rmsnorm_u and qkv_proj_u in %s\n', stageProfile, mdlPath);
 end
 
-function ensure_base_param(name, defaultValue)
-    if evalin('base', sprintf('exist(''%s'', ''var'')', name)) == 0
-        assignin('base', name, defaultValue);
+function cfg = resolve_kv_addr_config(options)
+    cfg = struct();
+    if isfield(options, 'KvAddressConfig') && isstruct(options.KvAddressConfig)
+        userCfg = options.KvAddressConfig;
+    else
+        userCfg = struct();
     end
+
+    cfg.rd_base = getFieldOr(userCfg, 'rd_base', 0);
+    cfg.wr_base = getFieldOr(userCfg, 'wr_base', 0);
+    cfg.stride_bytes = getFieldOr(userCfg, 'stride_bytes', 2);
+    cfg.decode_burst_len = getFieldOr(userCfg, 'decode_burst_len', 1);
 end
 
 function build_prefill_path(mdlName, stageProfile)
@@ -351,7 +356,7 @@ function configure_kv_cache_if(subPath)
     safe_add_line(subPath, 'mode_switch/1', 'kv_to_attn/1');
 end
 
-function configure_kv_addr_gen(subPath)
+function configure_kv_addr_gen(subPath, cfg)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [20, 40, 50, 54]);
@@ -360,13 +365,13 @@ function configure_kv_addr_gen(subPath)
 
     % Software-configured constants (base/stride/decode burst), with hardware doing token math.
     add_block('simulink/Sources/Constant', [subPath '/rd_base_const'], ...
-        'Value', 'kv_rd_base', 'Position', [90, 10, 140, 30]);
+        'Value', num2str(cfg.rd_base), 'Position', [90, 10, 140, 30]);
     add_block('simulink/Sources/Constant', [subPath '/wr_base_const'], ...
-        'Value', 'kv_wr_base', 'Position', [90, 35, 140, 55]);
+        'Value', num2str(cfg.wr_base), 'Position', [90, 35, 140, 55]);
     add_block('simulink/Sources/Constant', [subPath '/stride_const'], ...
-        'Value', 'kv_stride_bytes', 'Position', [90, 60, 150, 80]);
+        'Value', num2str(cfg.stride_bytes), 'Position', [90, 60, 150, 80]);
     add_block('simulink/Sources/Constant', [subPath '/decode_burst_const'], ...
-        'Value', 'decode_burst_len', 'Position', [90, 85, 170, 105]);
+        'Value', num2str(cfg.decode_burst_len), 'Position', [90, 85, 170, 105]);
     add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
         'Value', '1', 'Position', [90, 150, 130, 170]);
 

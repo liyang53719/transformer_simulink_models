@@ -11,7 +11,8 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     end
 
     addpath(fullfile(rootDir, 'scripts'));
-    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready'));
+    kvCfg = struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1);
+    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(mdlPath);
@@ -57,6 +58,20 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     result.decode_path_wiring_ok = isempty(missingEdges);
     result.addr_gen_structure_ok = isempty(missingKvAddrBlocks);
 
+    kvConstChecks = {
+        [kvAddrPath '/rd_base_const'], num2str(kvCfg.rd_base);
+        [kvAddrPath '/wr_base_const'], num2str(kvCfg.wr_base);
+        [kvAddrPath '/stride_const'], num2str(kvCfg.stride_bytes);
+        [kvAddrPath '/decode_burst_const'], num2str(kvCfg.decode_burst_len)};
+    badKvConstValues = {};
+    for i = 1:size(kvConstChecks, 1)
+        actualVal = strtrim(get_param(kvConstChecks{i, 1}, 'Value'));
+        if ~strcmp(actualVal, kvConstChecks{i, 2})
+            badKvConstValues{end+1} = sprintf('%s expected=%s actual=%s', ...
+                kvConstChecks{i, 1}, kvConstChecks{i, 2}, actualVal); %#ok<AGROW>
+        end
+    end
+
     axiRdPath = [mdlName '/axi_master_rd_u'];
     axiRdBlocks = {'avalid_state_z', 'addr_hs_logic', 'burst_active_z', 'burst_count_z', 'burst_done_logic'};
     missingAxiRdBlocks = {};
@@ -68,7 +83,10 @@ function result = run_stage2_decode_internal_smoke(rootDir)
 
     result.missing_axi_rd_blocks = missingAxiRdBlocks;
     result.axi_rd_structure_ok = isempty(missingAxiRdBlocks);
-    result.pass = result.compile_update_ok && result.decode_path_wiring_ok && result.addr_gen_structure_ok && result.axi_rd_structure_ok;
+    result.bad_kv_constant_values = badKvConstValues;
+    result.kv_constant_values_ok = isempty(badKvConstValues);
+    result.pass = result.compile_update_ok && result.decode_path_wiring_ok && ...
+        result.addr_gen_structure_ok && result.kv_constant_values_ok && result.axi_rd_structure_ok;
 
     if result.pass
         fprintf('Stage2 decode internal smoke PASS\n');
@@ -82,6 +100,12 @@ function result = run_stage2_decode_internal_smoke(rootDir)
         end
         if ~isempty(missingKvAddrBlocks)
             fprintf('  Missing kv_addr_gen blocks: %s\n', strjoin(missingKvAddrBlocks, ', '));
+        end
+        if ~isempty(badKvConstValues)
+            fprintf('  Bad kv_addr_gen constant values:\n');
+            for i = 1:numel(badKvConstValues)
+                fprintf('    - %s\n', badKvConstValues{i});
+            end
         end
         if ~isempty(missingAxiRdBlocks)
             fprintf('  Missing axi_master_rd blocks: %s\n', strjoin(missingAxiRdBlocks, ', '));
