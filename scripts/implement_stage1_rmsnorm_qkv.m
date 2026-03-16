@@ -15,13 +15,17 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         error('Model not found: %s. Run create_qwen2_block_top_placeholder first.', mdlPath);
     end
 
-    load_system(mdlPath);
     [~, mdlName] = fileparts(mdlPath);
+    if bdIsLoaded(mdlName)
+        close_system(mdlName, 0);
+    end
+    load_system(mdlPath);
 
     configure_rmsnorm([mdlName '/rmsnorm_u']);
     configure_qkv_proj([mdlName '/qkv_proj_u']);
 
     if stageProfile == "stage2_memory_ready"
+        addpath(fullfile(rootDir, 'simulink', 'fsm'));
         kvCfg = resolve_kv_addr_config(options);
         ensure_stage2_ports(mdlName);
         ensure_memory_subsystems(mdlName);
@@ -37,7 +41,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
 
-    save_system(mdlName, mdlPath);
+    save_system(mdlName, mdlPath, 'OverwriteIfChangedOnDisk', true);
     close_system(mdlName, 0);
 
     fprintf('Implemented %s internals for rmsnorm_u and qkv_proj_u in %s\n', stageProfile, mdlPath);
@@ -398,28 +402,34 @@ function configure_ctrl_fsm(subPath)
     add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 40, 50, 54]);
     add_block('simulink/Sources/In1', [subPath '/start'], 'Position', [20, 90, 50, 104]);
     add_block('simulink/Sources/In1', [subPath '/stop_req'], 'Position', [20, 140, 50, 154]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/state_z'], ...
+        'InitialCondition', '0', 'Position', [120, 170, 150, 200]);
+    add_block('simulink/User-Defined Functions/MATLAB Function', [subPath '/fsm_core'], ...
+        'Position', [210, 55, 320, 185]);
 
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/busy_or'], ...
-        'Operator', 'OR', 'Position', [120, 55, 150, 95]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/busy_and_not_stop'], ...
-        'Operator', 'AND', 'Position', [190, 70, 220, 110]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/not_stop'], ...
-        'Operator', 'NOT', 'Position', [120, 130, 150, 160]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/done_logic'], ...
-        'Operator', 'AND', 'Position', [260, 95, 290, 125]);
+    fsmCode = sprintf([ ...
+        'function [done_out,busy_out,state_next] = fsm_core(mode_decode,start,stop_req,state_in)\n' ...
+        '%%#codegen\n' ...
+        '[done_out,busy_out,state_next] = ctrl_fsm_step(mode_decode,start,stop_req,state_in);\n' ...
+        'end\n']);
+    rt = sfroot;
+    chart = rt.find('-isa', 'Stateflow.EMChart', 'Path', [subPath '/fsm_core']);
+    if isempty(chart)
+        error('configure_ctrl_fsm:MissingEMChart', ...
+            'Expected MATLAB Function chart at %s/fsm_core', subPath);
+    end
+    chart.Script = fsmCode;
 
     add_block('simulink/Sinks/Out1', [subPath '/done_out'], 'Position', [350, 95, 380, 109]);
     add_block('simulink/Sinks/Out1', [subPath '/busy_out'], 'Position', [350, 55, 380, 69]);
 
-    safe_add_line(subPath, 'mode_decode/1', 'busy_or/1');
-    safe_add_line(subPath, 'start/1', 'busy_or/2');
-    safe_add_line(subPath, 'busy_or/1', 'busy_and_not_stop/1');
-    safe_add_line(subPath, 'stop_req/1', 'not_stop/1');
-    safe_add_line(subPath, 'not_stop/1', 'busy_and_not_stop/2');
-    safe_add_line(subPath, 'busy_and_not_stop/1', 'busy_out/1');
-    safe_add_line(subPath, 'start/1', 'done_logic/1');
-    safe_add_line(subPath, 'stop_req/1', 'done_logic/2');
-    safe_add_line(subPath, 'done_logic/1', 'done_out/1');
+    safe_add_line(subPath, 'mode_decode/1', 'fsm_core/1');
+    safe_add_line(subPath, 'start/1', 'fsm_core/2');
+    safe_add_line(subPath, 'stop_req/1', 'fsm_core/3');
+    safe_add_line(subPath, 'state_z/1', 'fsm_core/4');
+    safe_add_line(subPath, 'fsm_core/1', 'done_out/1');
+    safe_add_line(subPath, 'fsm_core/2', 'busy_out/1');
+    safe_add_line(subPath, 'fsm_core/3', 'state_z/1');
 end
 
 function configure_ddr_model_if(subPath)
