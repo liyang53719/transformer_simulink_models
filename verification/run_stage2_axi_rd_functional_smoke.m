@@ -1,4 +1,4 @@
-function result = run_stage2_axi_rd_functional_smoke(rootDir)
+function result = run_stage2_axi_rd_functional_smoke(rootDir, options)
 %RUN_STAGE2_AXI_RD_FUNCTIONAL_SMOKE Functional smoke for axi_master_rd_u control logic.
 %   This smoke validates two behavioral properties with deterministic vectors:
 %   1) rd_avalid remains asserted until rd_aready handshake.
@@ -7,9 +7,17 @@ function result = run_stage2_axi_rd_functional_smoke(rootDir)
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
     end
+    if nargin < 2 || ~isstruct(options)
+        options = struct();
+    end
+
+    buildModel = getFieldOr(options, 'BuildModel', true);
+    kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
-    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready'));
+    if buildModel
+        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
+    end
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(mdlPath);
@@ -167,5 +175,13 @@ function out = ternary(cond, trueVal, falseVal)
         out = trueVal;
     else
         out = falseVal;
+    end
+end
+
+function out = getFieldOr(s, name, defaultValue)
+    if isfield(s, name)
+        out = s.(name);
+    else
+        out = defaultValue;
     end
 end

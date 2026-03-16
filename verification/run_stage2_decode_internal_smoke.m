@@ -1,4 +1,4 @@
-function result = run_stage2_decode_internal_smoke(rootDir)
+function result = run_stage2_decode_internal_smoke(rootDir, options)
 %RUN_STAGE2_DECODE_INTERNAL_SMOKE Validate stage2 decode internal wiring.
 %
 % This smoke test focuses on deterministic checks:
@@ -9,10 +9,17 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
     end
+    if nargin < 2 || ~isstruct(options)
+        options = struct();
+    end
+
+    buildModel = getFieldOr(options, 'BuildModel', true);
+    kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
-    kvCfg = struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1);
-    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
+    if buildModel
+        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
+    end
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(mdlPath);
@@ -207,6 +214,14 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     end
 
     close_system(mdlName, 0);
+end
+
+function out = getFieldOr(s, name, defaultValue)
+    if isfield(s, name)
+        out = s.(name);
+    else
+        out = defaultValue;
+    end
 end
 
 function yes = has_connection(mdlName, srcSpec, dstSpec)
