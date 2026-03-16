@@ -28,6 +28,9 @@ function result = run_stage2_decode_internal_smoke(rootDir, options)
     set_param(mdlName, 'SimulationCommand', 'update');
 
     requiredEdges = {
+          'in_hidden/1', 'rope_u/1';
+          'cfg_token_pos/1', 'rope_u/2';
+          'rope_u/1', 'rmsnorm_u/1';
         'qkv_proj_u/1', 'kv_cache_if_u/1';
         'mode_decode/1', 'kv_cache_if_u/3';
         'axi_master_rd_u/1', 'kv_cache_if_u/2';
