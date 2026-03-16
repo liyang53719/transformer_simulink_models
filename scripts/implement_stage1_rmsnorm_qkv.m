@@ -24,12 +24,14 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     if stageProfile == "stage2_memory_ready"
         ensure_stage2_ports(mdlName);
         ensure_memory_subsystems(mdlName);
+        configure_kv_cache_if([mdlName '/kv_cache_if_u']);
+        configure_kv_addr_gen([mdlName '/kv_addr_gen_u']);
         configure_axi_master_rd([mdlName '/axi_master_rd_u']);
         configure_axi_master_wr([mdlName '/axi_master_wr_u']);
         configure_ddr_model_if([mdlName '/ddr_model_if_u']);
     end
 
-    build_prefill_path(mdlName);
+    build_prefill_path(mdlName, stageProfile);
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
 
@@ -39,11 +41,21 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     fprintf('Implemented %s internals for rmsnorm_u and qkv_proj_u in %s\n', stageProfile, mdlPath);
 end
 
-function build_prefill_path(mdlName)
+function build_prefill_path(mdlName, stageProfile)
     safe_add_line(mdlName, 'in_hidden/1', 'rmsnorm_u/1');
     safe_add_line(mdlName, 'cfg_eps/1', 'rmsnorm_u/2');
     safe_add_line(mdlName, 'rmsnorm_u/1', 'qkv_proj_u/1');
-    safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
+
+    if stageProfile == "stage2_memory_ready"
+        safe_add_line(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
+        safe_add_line(mdlName, 'mode_decode/1', 'kv_cache_if_u/3');
+        safe_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
+        safe_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
+        safe_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
+        safe_add_line(mdlName, 'residual_u/1', 'out_hidden/1');
+    else
+        safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
+    end
 
     safe_add_line(mdlName, 'in_valid/1', 'out_valid/1');
     safe_add_line(mdlName, 'out_ready/1', 'in_ready/1');
@@ -59,10 +71,14 @@ function build_decode_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'kv_mem_rd_ready/1', 'axi_master_rd_u/2');
         safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'axi_master_rd_u/3');
         safe_add_line(mdlName, 'start/1', 'axi_master_rd_u/4');
-        safe_add_line(mdlName, 'cfg_seq_len/1', 'axi_master_rd_u/5');
+        safe_add_line(mdlName, 'kv_addr_gen_u/1', 'axi_master_rd_u/5');
+        safe_add_line(mdlName, 'kv_addr_gen_u/2', 'axi_master_rd_u/6');
         safe_add_line(mdlName, 'axi_master_rd_u/3', 'kv_mem_rd_addr/1');
         safe_add_line(mdlName, 'axi_master_rd_u/4', 'kv_mem_rd_len/1');
         safe_add_line(mdlName, 'axi_master_rd_u/5', 'kv_mem_rd_valid/1');
+
+        % Internal decode closure: historical KV flows into kv_cache_if_u.
+        safe_add_line(mdlName, 'axi_master_rd_u/1', 'kv_cache_if_u/2');
     end
 end
 
@@ -72,11 +88,16 @@ function build_kv_memory_stubs(mdlName, stageProfile)
     safe_add_line(mdlName, 'eos_in/1', 'eos_out/1');
 
     if stageProfile == "stage2_memory_ready"
+        safe_add_line(mdlName, 'cfg_token_pos/1', 'kv_addr_gen_u/1');
+        safe_add_line(mdlName, 'cfg_seq_len/1', 'kv_addr_gen_u/2');
+        safe_add_line(mdlName, 'mode_decode/1', 'kv_addr_gen_u/3');
+
         % Write path hooks (adapted from soc_image_rotation AXI4MasterWriteController).
-        safe_add_line(mdlName, 'kv_cache_wr_data/1', 'axi_master_wr_u/1');
+        safe_add_line(mdlName, 'qkv_proj_u/1', 'axi_master_wr_u/1');
         safe_add_line(mdlName, 'kv_cache_wr_en/1', 'axi_master_wr_u/2');
         safe_add_line(mdlName, 'done/1', 'axi_master_wr_u/3');
-        safe_add_line(mdlName, 'cfg_seq_len/1', 'axi_master_wr_u/4');
+        safe_add_line(mdlName, 'kv_addr_gen_u/3', 'axi_master_wr_u/4');
+        safe_add_line(mdlName, 'kv_addr_gen_u/4', 'axi_master_wr_u/5');
         safe_add_line(mdlName, 'axi_master_wr_u/2', 'kv_mem_wr_addr/1');
         safe_add_line(mdlName, 'axi_master_wr_u/3', 'kv_mem_wr_len/1');
         safe_add_line(mdlName, 'axi_master_wr_u/4', 'kv_mem_wr_valid/1');
@@ -115,6 +136,7 @@ function ensure_memory_subsystems(mdlName)
     ensure_subsystem(mdlName, 'axi_master_rd_u', [980, 430, 1220, 510]);
     ensure_subsystem(mdlName, 'axi_master_wr_u', [980, 540, 1220, 620]);
     ensure_subsystem(mdlName, 'ddr_model_if_u', [980, 650, 1220, 730]);
+    ensure_subsystem(mdlName, 'kv_addr_gen_u', [700, 600, 920, 680]);
 end
 
 function ensure_subsystem(mdlName, name, pos)
@@ -145,16 +167,15 @@ function configure_axi_master_rd(subPath)
     add_block('simulink/Sources/In1', [subPath '/rd_aready'], 'Position', [20, 70, 50, 84]);
     add_block('simulink/Sources/In1', [subPath '/rd_dvalid'], 'Position', [20, 110, 50, 124]);
     add_block('simulink/Sources/In1', [subPath '/start'], 'Position', [20, 150, 50, 164]);
-    add_block('simulink/Sources/In1', [subPath '/imageWidth'], 'Position', [20, 190, 50, 204]);
+    add_block('simulink/Sources/In1', [subPath '/addr_base'], 'Position', [20, 190, 50, 204]);
+    add_block('simulink/Sources/In1', [subPath '/burst_len'], 'Position', [20, 230, 50, 244]);
 
     add_block('simulink/Signal Routing/Goto', [subPath '/_placeholder_comment'], ...
         'Position', [140, 20, 230, 35], 'GotoTag', 'AXI4MasterReadControllerStub');
-    add_block('simulink/Math Operations/Gain', [subPath '/addr_gain'], ...
-        'Gain', '2.0', 'Position', [120, 170, 180, 195]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/avalid_logic'], ...
-        'Operator', 'AND', 'Position', [120, 100, 150, 130]);
+        'Operator', 'AND', 'Position', [120, 110, 150, 140]);
     add_block('simulink/Sources/Constant', [subPath '/dready_const'], ...
-        'Value', '1', 'Position', [120, 220, 160, 240]);
+        'Value', '1', 'Position', [120, 250, 160, 270]);
 
     add_block('simulink/Sinks/Out1', [subPath '/rd_data_out'], 'Position', [370, 30, 400, 44]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_dvalid_out'], 'Position', [370, 70, 400, 84]);
@@ -165,9 +186,8 @@ function configure_axi_master_rd(subPath)
 
     safe_add_line(subPath, 'rd_data/1', 'rd_data_out/1');
     safe_add_line(subPath, 'rd_dvalid/1', 'rd_dvalid_out/1');
-    safe_add_line(subPath, 'imageWidth/1', 'addr_gain/1');
-    safe_add_line(subPath, 'addr_gain/1', 'rd_addr/1');
-    safe_add_line(subPath, 'imageWidth/1', 'rd_len/1');
+    safe_add_line(subPath, 'addr_base/1', 'rd_addr/1');
+    safe_add_line(subPath, 'burst_len/1', 'rd_len/1');
     safe_add_line(subPath, 'start/1', 'avalid_logic/1');
     safe_add_line(subPath, 'rd_aready/1', 'avalid_logic/2');
     safe_add_line(subPath, 'avalid_logic/1', 'rd_avalid/1');
@@ -180,12 +200,11 @@ function configure_axi_master_wr(subPath)
     add_block('simulink/Sources/In1', [subPath '/wr_data'], 'Position', [20, 30, 50, 44]);
     add_block('simulink/Sources/In1', [subPath '/wr_dvalid'], 'Position', [20, 70, 50, 84]);
     add_block('simulink/Sources/In1', [subPath '/wr_complete'], 'Position', [20, 110, 50, 124]);
-    add_block('simulink/Sources/In1', [subPath '/imageWidth'], 'Position', [20, 150, 50, 164]);
+    add_block('simulink/Sources/In1', [subPath '/addr_base'], 'Position', [20, 150, 50, 164]);
+    add_block('simulink/Sources/In1', [subPath '/burst_len'], 'Position', [20, 190, 50, 204]);
 
     add_block('simulink/Signal Routing/Goto', [subPath '/_placeholder_comment'], ...
         'Position', [140, 20, 230, 35], 'GotoTag', 'AXI4MasterWriteControllerStub');
-    add_block('simulink/Math Operations/Gain', [subPath '/addr_gain'], ...
-        'Gain', '2.0', 'Position', [120, 120, 180, 145]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/next_line_logic'], ...
         'Operator', 'AND', 'Position', [120, 170, 150, 200]);
 
@@ -196,9 +215,8 @@ function configure_axi_master_wr(subPath)
     add_block('simulink/Sinks/Out1', [subPath '/request_next_line'], 'Position', [370, 190, 400, 204]);
 
     safe_add_line(subPath, 'wr_data/1', 'wr_data_out/1');
-    safe_add_line(subPath, 'imageWidth/1', 'addr_gain/1');
-    safe_add_line(subPath, 'addr_gain/1', 'wr_addr/1');
-    safe_add_line(subPath, 'imageWidth/1', 'wr_len/1');
+    safe_add_line(subPath, 'addr_base/1', 'wr_addr/1');
+    safe_add_line(subPath, 'burst_len/1', 'wr_len/1');
     safe_add_line(subPath, 'wr_dvalid/1', 'wr_valid/1');
     safe_add_line(subPath, 'wr_complete/1', 'next_line_logic/1');
     safe_add_line(subPath, 'wr_dvalid/1', 'next_line_logic/2');
@@ -231,6 +249,54 @@ function configure_ddr_model_if(subPath)
     safe_add_line(subPath, 'rd_ready/1', 'accepted_sum/1');
     safe_add_line(subPath, 'wr_ready/1', 'accepted_sum/2');
     safe_add_line(subPath, 'accepted_sum/1', 'accepted_beats/1');
+end
+
+function configure_kv_cache_if(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/qkv_new'], 'Position', [20, 40, 50, 54]);
+    add_block('simulink/Sources/In1', [subPath '/kv_hist'], 'Position', [20, 90, 50, 104]);
+    add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 140, 50, 154]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/mode_switch'], ...
+        'Threshold', '0.5', 'Position', [120, 60, 170, 140]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_to_attn'], 'Position', [260, 95, 290, 109]);
+
+    safe_add_line(subPath, 'qkv_new/1', 'mode_switch/1');
+    safe_add_line(subPath, 'mode_decode/1', 'mode_switch/2');
+    safe_add_line(subPath, 'kv_hist/1', 'mode_switch/3');
+    safe_add_line(subPath, 'mode_switch/1', 'kv_to_attn/1');
+end
+
+function configure_kv_addr_gen(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [20, 40, 50, 54]);
+    add_block('simulink/Sources/In1', [subPath '/seq_len'], 'Position', [20, 80, 50, 94]);
+    add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 120, 50, 134]);
+
+    add_block('simulink/Math Operations/Gain', [subPath '/rd_addr_scale'], ...
+        'Gain', '2', 'Position', [120, 35, 180, 60]);
+    add_block('simulink/Math Operations/Gain', [subPath '/wr_addr_scale'], ...
+        'Gain', '2', 'Position', [120, 85, 180, 110]);
+    add_block('simulink/Math Operations/Add', [subPath '/wr_addr_add'], ...
+        'Inputs', '++', 'Position', [210, 80, 240, 115]);
+    add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
+        'Value', '1', 'Position', [120, 130, 160, 150]);
+
+    add_block('simulink/Sinks/Out1', [subPath '/rd_addr'], 'Position', [330, 30, 360, 44]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_len'], 'Position', [330, 70, 360, 84]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_addr'], 'Position', [330, 110, 360, 124]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_len'], 'Position', [330, 150, 360, 164]);
+
+    safe_add_line(subPath, 'token_pos/1', 'rd_addr_scale/1');
+    safe_add_line(subPath, 'rd_addr_scale/1', 'rd_addr/1');
+    safe_add_line(subPath, 'seq_len/1', 'rd_len/1');
+
+    safe_add_line(subPath, 'token_pos/1', 'wr_addr_scale/1');
+    safe_add_line(subPath, 'wr_addr_scale/1', 'wr_addr_add/1');
+    safe_add_line(subPath, 'one_const/1', 'wr_addr_add/2');
+    safe_add_line(subPath, 'wr_addr_add/1', 'wr_addr/1');
+    safe_add_line(subPath, 'seq_len/1', 'wr_len/1');
 end
 
 function configure_rmsnorm(subPath)
