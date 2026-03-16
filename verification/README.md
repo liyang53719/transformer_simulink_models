@@ -10,4 +10,4 @@
 首版要求：每次改动至少通过 1 组算子级和 1 组 Block 级回归。
 
 附加 smoke（stage2 实装后建议执行）：
-- `run_stage2_decode_internal_smoke`：验证 `mode_decode` 内部路径切换与 `kv_addr_gen_u` 地址输出。
+- `run_stage2_decode_internal_smoke`：验证 `mode_decode` 内部路径切换、`kv_addr_gen_u` 参数化地址生成结构与常量值，以及 `axi_master_rd_u` 的 `avalid` 保持/突发完成关键内部连线。

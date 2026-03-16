@@ -51,6 +51,23 @@ function result = run_stage2_decode_internal_smoke(rootDir)
         end
     end
 
+    kvInternalEdges = {
+        'kv_addr_gen_u/rd_addr_scale/1', 'kv_addr_gen_u/rd_addr_mode_sel/1';
+        'kv_addr_gen_u/rd_addr_prefill_scale/1', 'kv_addr_gen_u/rd_addr_mode_sel/3';
+        'kv_addr_gen_u/mode_decode/1', 'kv_addr_gen_u/rd_addr_mode_sel/2';
+        'kv_addr_gen_u/rd_addr_mode_sel/1', 'kv_addr_gen_u/rd_addr_add_base/1';
+        'kv_addr_gen_u/rd_base_const/1', 'kv_addr_gen_u/rd_addr_add_base/2';
+        'kv_addr_gen_u/wr_addr_scale/1', 'kv_addr_gen_u/wr_addr_mode_sel/3';
+        'kv_addr_gen_u/wr_addr_add/1', 'kv_addr_gen_u/wr_addr_mode_sel/1';
+        'kv_addr_gen_u/decode_burst_const/1', 'kv_addr_gen_u/rd_len_mode_sel/1';
+        'kv_addr_gen_u/seq_len/1', 'kv_addr_gen_u/rd_len_mode_sel/3'};
+    missingKvInternalEdges = {};
+    for i = 1:size(kvInternalEdges, 1)
+        if ~has_connection(mdlName, kvInternalEdges{i, 1}, kvInternalEdges{i, 2})
+            missingKvInternalEdges{end+1} = sprintf('%s -> %s', kvInternalEdges{i, 1}, kvInternalEdges{i, 2}); %#ok<AGROW>
+        end
+    end
+
     result = struct();
     result.compile_update_ok = true;
     result.missing_edges = missingEdges;
@@ -81,12 +98,35 @@ function result = run_stage2_decode_internal_smoke(rootDir)
         end
     end
 
+    axiRdInternalEdges = {
+        'axi_master_rd_u/start/1', 'axi_master_rd_u/start_or_hold/1';
+        'axi_master_rd_u/avalid_state_z/1', 'axi_master_rd_u/start_or_hold/2';
+        'axi_master_rd_u/start_or_hold/1', 'axi_master_rd_u/addr_hs_logic/1';
+        'axi_master_rd_u/rd_aready/1', 'axi_master_rd_u/addr_hs_logic/2';
+        'axi_master_rd_u/addr_hs_logic/1', 'axi_master_rd_u/burst_next_logic/1';
+        'axi_master_rd_u/burst_next_logic/1', 'axi_master_rd_u/burst_active_z/1';
+        'axi_master_rd_u/burst_active_z/1', 'axi_master_rd_u/beat_fire_logic/1';
+        'axi_master_rd_u/rd_dvalid/1', 'axi_master_rd_u/beat_fire_logic/2';
+        'axi_master_rd_u/count_done_cmp/1', 'axi_master_rd_u/burst_done_logic/2';
+        'axi_master_rd_u/rd_valid_gate/1', 'axi_master_rd_u/rd_dvalid_out/1'};
+    missingAxiRdInternalEdges = {};
+    for i = 1:size(axiRdInternalEdges, 1)
+        if ~has_connection(mdlName, axiRdInternalEdges{i, 1}, axiRdInternalEdges{i, 2})
+            missingAxiRdInternalEdges{end+1} = sprintf('%s -> %s', axiRdInternalEdges{i, 1}, axiRdInternalEdges{i, 2}); %#ok<AGROW>
+        end
+    end
+
     result.missing_axi_rd_blocks = missingAxiRdBlocks;
     result.axi_rd_structure_ok = isempty(missingAxiRdBlocks);
+    result.missing_kv_internal_edges = missingKvInternalEdges;
+    result.kv_internal_semantics_ok = isempty(missingKvInternalEdges);
+    result.missing_axi_rd_internal_edges = missingAxiRdInternalEdges;
+    result.axi_rd_semantics_ok = isempty(missingAxiRdInternalEdges);
     result.bad_kv_constant_values = badKvConstValues;
     result.kv_constant_values_ok = isempty(badKvConstValues);
     result.pass = result.compile_update_ok && result.decode_path_wiring_ok && ...
-        result.addr_gen_structure_ok && result.kv_constant_values_ok && result.axi_rd_structure_ok;
+        result.addr_gen_structure_ok && result.kv_constant_values_ok && ...
+        result.kv_internal_semantics_ok && result.axi_rd_structure_ok && result.axi_rd_semantics_ok;
 
     if result.pass
         fprintf('Stage2 decode internal smoke PASS\n');
@@ -107,8 +147,20 @@ function result = run_stage2_decode_internal_smoke(rootDir)
                 fprintf('    - %s\n', badKvConstValues{i});
             end
         end
+        if ~isempty(missingKvInternalEdges)
+            fprintf('  Missing kv_addr_gen internal edges:\n');
+            for i = 1:numel(missingKvInternalEdges)
+                fprintf('    - %s\n', missingKvInternalEdges{i});
+            end
+        end
         if ~isempty(missingAxiRdBlocks)
             fprintf('  Missing axi_master_rd blocks: %s\n', strjoin(missingAxiRdBlocks, ', '));
+        end
+        if ~isempty(missingAxiRdInternalEdges)
+            fprintf('  Missing axi_master_rd internal edges:\n');
+            for i = 1:numel(missingAxiRdInternalEdges)
+                fprintf('    - %s\n', missingAxiRdInternalEdges{i});
+            end
         end
         error('run_stage2_decode_internal_smoke:Failed', ...
             'stage2 decode path or kv address generation check failed');
@@ -152,6 +204,6 @@ end
 function out = split_port_spec(spec)
     parts = split(string(spec), '/');
     out = struct();
-    out.block = char(parts(1));
-    out.port = str2double(parts(2));
+    out.port = str2double(parts(end));
+    out.block = char(strjoin(parts(1:end-1), '/'));
 end
