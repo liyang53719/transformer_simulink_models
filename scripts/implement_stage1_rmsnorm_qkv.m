@@ -578,50 +578,53 @@ function configure_rmsnorm(subPath)
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 40, 60, 54]);
     add_block('simulink/Sources/In1', [subPath '/eps_in'], 'Position', [30, 110, 60, 124]);
-    add_block('simulink/Math Operations/Gain', [subPath '/x_scale'], ...
-        'Gain', '1.0', 'Position', [110, 35, 170, 60]);
-    add_block('simulink/Math Operations/Gain', [subPath '/eps_scale'], ...
-        'Gain', '0.0', 'Position', [110, 105, 170, 130]);
-    add_block('simulink/Math Operations/Sum', [subPath '/sum_out'], ...
-        'Inputs', '++', 'Position', [220, 55, 250, 105]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [300, 75, 330, 89]);
+    add_block('simulink/Math Operations/Product', [subPath '/x_square'], ...
+        'Inputs', '**', 'Position', [110, 35, 145, 65]);
+    add_block('simulink/Math Operations/Add', [subPath '/var_eps_sum'], ...
+        'Inputs', '++', 'Position', [190, 60, 225, 100]);
+    add_block('simulink/Math Operations/Math Function', [subPath '/sqrt_denom'], ...
+        'Operator', 'sqrt', 'Position', [260, 65, 300, 95]);
+    add_block('simulink/Math Operations/Divide', [subPath '/x_norm'], ...
+        'Position', [330, 50, 365, 100]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [560, 75, 590, 89]);
 
-    safe_add_line(subPath, 'x_in/1', 'x_scale/1');
-    safe_add_line(subPath, 'eps_in/1', 'eps_scale/1');
-    safe_add_line(subPath, 'x_scale/1', 'sum_out/1');
-    safe_add_line(subPath, 'eps_scale/1', 'sum_out/2');
-    safe_add_line(subPath, 'sum_out/1', 'y_out/1');
+    safe_add_line(subPath, 'x_in/1', 'x_square/1');
+    safe_add_line(subPath, 'x_in/1', 'x_square/2');
+    safe_add_line(subPath, 'x_square/1', 'var_eps_sum/1');
+    safe_add_line(subPath, 'eps_in/1', 'var_eps_sum/2');
+    safe_add_line(subPath, 'var_eps_sum/1', 'sqrt_denom/1');
+    safe_add_line(subPath, 'x_in/1', 'x_norm/1');
+    safe_add_line(subPath, 'sqrt_denom/1', 'x_norm/2');
+
+    gammaOut = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', 410, 55, '1.0');
+    safe_add_line(subPath, gammaOut, 'y_out/1');
 end
 
 function configure_qkv_proj(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
-    add_block('simulink/Math Operations/Gain', [subPath '/q_gain'], ...
-        'Gain', '0.6', 'Position', [110, 35, 170, 60]);
-    add_block('simulink/Math Operations/Gain', [subPath '/k_gain'], ...
-        'Gain', '0.4', 'Position', [110, 105, 170, 130]);
-    add_block('simulink/Math Operations/Sum', [subPath '/mix_sum'], ...
-        'Inputs', '++', 'Position', [220, 55, 250, 105]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [300, 75, 330, 89]);
+    add_block('simulink/Math Operations/Add', [subPath '/qk_sum'], ...
+        'Inputs', '++', 'Position', [500, 45, 535, 85]);
+    add_block('simulink/Math Operations/Add', [subPath '/qkv_sum'], ...
+        'Inputs', '++', 'Position', [570, 60, 605, 100]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [650, 75, 680, 89]);
 
-    safe_add_line(subPath, 'x_in/1', 'q_gain/1');
-    safe_add_line(subPath, 'x_in/1', 'k_gain/1');
-    safe_add_line(subPath, 'q_gain/1', 'mix_sum/1');
-    safe_add_line(subPath, 'k_gain/1', 'mix_sum/2');
-    safe_add_line(subPath, 'mix_sum/1', 'y_out/1');
+    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 110, 15, '0.6');
+    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 110, 85, '0.4');
+    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 110, 155, '1.0');
+
+    safe_add_line(subPath, qOut, 'qk_sum/1');
+    safe_add_line(subPath, kOut, 'qk_sum/2');
+    safe_add_line(subPath, 'qk_sum/1', 'qkv_sum/1');
+    safe_add_line(subPath, vOut, 'qkv_sum/2');
+    safe_add_line(subPath, 'qkv_sum/1', 'y_out/1');
 end
 
 function configure_attention(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
-    add_block('simulink/Math Operations/Gain', [subPath '/q_gain'], ...
-        'Gain', '0.6', 'Position', [110, 25, 170, 50]);
-    add_block('simulink/Math Operations/Gain', [subPath '/k_gain'], ...
-        'Gain', '0.4', 'Position', [110, 75, 170, 100]);
-    add_block('simulink/Math Operations/Gain', [subPath '/v_gain'], ...
-        'Gain', '1.0', 'Position', [110, 125, 170, 150]);
     add_block('simulink/Math Operations/Product', [subPath '/score_mul'], ...
         'Inputs', '**', 'Position', [210, 45, 245, 85]);
     add_block('simulink/Math Operations/Abs', [subPath '/score_abs'], ...
@@ -636,18 +639,19 @@ function configure_attention(subPath)
         'Inputs', '**', 'Position', [500, 75, 535, 115]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [580, 90, 610, 104]);
 
-    safe_add_line(subPath, 'x_in/1', 'q_gain/1');
-    safe_add_line(subPath, 'x_in/1', 'k_gain/1');
-    safe_add_line(subPath, 'x_in/1', 'v_gain/1');
-    safe_add_line(subPath, 'q_gain/1', 'score_mul/1');
-    safe_add_line(subPath, 'k_gain/1', 'score_mul/2');
+    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 110, 15, '0.6');
+    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 110, 75, '0.4');
+    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 110, 135, '1.0');
+
+    safe_add_line(subPath, qOut, 'score_mul/1');
+    safe_add_line(subPath, kOut, 'score_mul/2');
     safe_add_line(subPath, 'score_mul/1', 'score_abs/1');
     safe_add_line(subPath, 'score_abs/1', 'score_den/1');
     safe_add_line(subPath, 'one_const/1', 'score_den/2');
     safe_add_line(subPath, 'score_mul/1', 'score_norm/1');
     safe_add_line(subPath, 'score_den/1', 'score_norm/2');
     safe_add_line(subPath, 'score_norm/1', 'value_weight/1');
-    safe_add_line(subPath, 'v_gain/1', 'value_weight/2');
+    safe_add_line(subPath, vOut, 'value_weight/2');
     safe_add_line(subPath, 'value_weight/1', 'y_out/1');
 end
 
@@ -655,10 +659,6 @@ function configure_ffn_swiglu(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
-    add_block('simulink/Math Operations/Gain', [subPath '/up_proj'], ...
-        'Gain', '1.4', 'Position', [110, 25, 170, 50]);
-    add_block('simulink/Math Operations/Gain', [subPath '/gate_proj'], ...
-        'Gain', '0.9', 'Position', [110, 85, 170, 110]);
     add_block('simulink/Math Operations/Abs', [subPath '/gate_abs'], ...
         'Position', [210, 85, 245, 115]);
     add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
@@ -673,17 +673,73 @@ function configure_ffn_swiglu(subPath)
         'Gain', '0.8', 'Position', [500, 80, 560, 105]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [620, 90, 650, 104]);
 
-    safe_add_line(subPath, 'x_in/1', 'up_proj/1');
-    safe_add_line(subPath, 'x_in/1', 'gate_proj/1');
-    safe_add_line(subPath, 'gate_proj/1', 'gate_abs/1');
+    upOut = add_streamed_weight_mul(subPath, 'up', 'x_in/1', 110, 15, '1.4');
+    gateOut = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', 110, 95, '0.9');
+
+    safe_add_line(subPath, gateOut, 'gate_abs/1');
     safe_add_line(subPath, 'gate_abs/1', 'gate_den/1');
     safe_add_line(subPath, 'one_const/1', 'gate_den/2');
-    safe_add_line(subPath, 'gate_proj/1', 'gate_norm/1');
+    safe_add_line(subPath, gateOut, 'gate_norm/1');
     safe_add_line(subPath, 'gate_den/1', 'gate_norm/2');
-    safe_add_line(subPath, 'up_proj/1', 'swiglu_mul/1');
+    safe_add_line(subPath, upOut, 'swiglu_mul/1');
     safe_add_line(subPath, 'gate_norm/1', 'swiglu_mul/2');
     safe_add_line(subPath, 'swiglu_mul/1', 'down_proj/1');
     safe_add_line(subPath, 'down_proj/1', 'y_out/1');
+end
+
+function mulOut = add_streamed_weight_mul(subPath, prefix, inSig, x0, y0, defaultWeight)
+    % Simulate off-chip DDR weight fetch + on-chip SRAM cache before multiply.
+    addrZ = [prefix '_ddr_addr_z'];
+    addrStep = [prefix '_addr_step'];
+    addrInc = [prefix '_addr_inc'];
+    ddrWeight = [prefix '_ddr_weight'];
+    ddrReq = [prefix '_ddr_req_valid'];
+    sramW = [prefix '_sram_weight_z'];
+    sramValid = [prefix '_sram_valid_z'];
+    sramSel = [prefix '_sram_sel'];
+    validOr = [prefix '_valid_or'];
+    mulBlk = [prefix '_mul'];
+
+    add_block('simulink/Discrete/Unit Delay', [subPath '/' addrZ], ...
+        'InitialCondition', '0', 'Position', [x0, y0, x0 + 30, y0 + 20]);
+    add_block('simulink/Sources/Constant', [subPath '/' addrStep], ...
+        'Value', '1', 'Position', [x0 + 45, y0, x0 + 85, y0 + 20]);
+    add_block('simulink/Math Operations/Add', [subPath '/' addrInc], ...
+        'Inputs', '++', 'Position', [x0 + 95, y0 - 2, x0 + 130, y0 + 22]);
+
+    add_block('simulink/Sources/Constant', [subPath '/' ddrWeight], ...
+        'Value', defaultWeight, 'Position', [x0, y0 + 45, x0 + 45, y0 + 65]);
+    add_block('simulink/Sources/Constant', [subPath '/' ddrReq], ...
+        'Value', '1', 'Position', [x0, y0 + 75, x0 + 45, y0 + 95]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/' sramW], ...
+        'InitialCondition', defaultWeight, 'Position', [x0 + 95, y0 + 45, x0 + 125, y0 + 65]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/' sramValid], ...
+        'InitialCondition', '0', 'Position', [x0 + 95, y0 + 75, x0 + 125, y0 + 95]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/' sramSel], ...
+        'Threshold', '0.5', 'Position', [x0 + 145, y0 + 40, x0 + 195, y0 + 90]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/' validOr], ...
+        'Operator', 'OR', 'Position', [x0 + 145, y0 + 75, x0 + 175, y0 + 105]);
+
+    add_block('simulink/Math Operations/Product', [subPath '/' mulBlk], ...
+        'Inputs', '**', 'Position', [x0 + 220, y0 + 45, x0 + 255, y0 + 85]);
+
+    safe_add_line(subPath, [addrZ '/1'], [addrInc '/1']);
+    safe_add_line(subPath, [addrStep '/1'], [addrInc '/2']);
+    safe_add_line(subPath, [addrInc '/1'], [addrZ '/1']);
+
+    safe_add_line(subPath, [sramW '/1'], [sramSel '/1']);
+    safe_add_line(subPath, [sramValid '/1'], [sramSel '/2']);
+    safe_add_line(subPath, [ddrWeight '/1'], [sramSel '/3']);
+    safe_add_line(subPath, [sramSel '/1'], [sramW '/1']);
+
+    safe_add_line(subPath, [sramValid '/1'], [validOr '/1']);
+    safe_add_line(subPath, [ddrReq '/1'], [validOr '/2']);
+    safe_add_line(subPath, [validOr '/1'], [sramValid '/1']);
+
+    safe_add_line(subPath, inSig, [mulBlk '/1']);
+    safe_add_line(subPath, [sramSel '/1'], [mulBlk '/2']);
+
+    mulOut = [mulBlk '/1'];
 end
 
 function configure_residual(subPath)
