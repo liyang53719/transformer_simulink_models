@@ -124,9 +124,40 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     result.axi_rd_semantics_ok = isempty(missingAxiRdInternalEdges);
     result.bad_kv_constant_values = badKvConstValues;
     result.kv_constant_values_ok = isempty(badKvConstValues);
+
+    axiWrPath = [mdlName '/axi_master_wr_u'];
+    axiWrBlocks = {'wvalid_state_z', 'request_or_hold', 'write_active_z', 'write_count_z', 'write_done_logic', 'next_line_logic'};
+    missingAxiWrBlocks = {};
+    for i = 1:numel(axiWrBlocks)
+        if isempty(find_system(axiWrPath, 'SearchDepth', 1, 'Name', axiWrBlocks{i}))
+            missingAxiWrBlocks{end+1} = axiWrBlocks{i}; %#ok<AGROW>
+        end
+    end
+
+    axiWrInternalEdges = {
+        'axi_master_wr_u/wr_dvalid/1', 'axi_master_wr_u/request_or_hold/1';
+        'axi_master_wr_u/wvalid_state_z/1', 'axi_master_wr_u/request_or_hold/2';
+        'axi_master_wr_u/request_or_hold/1', 'axi_master_wr_u/start_write_logic/1';
+        'axi_master_wr_u/write_active_z/1', 'axi_master_wr_u/not_write_active/1';
+        'axi_master_wr_u/beat_fire_logic/1', 'axi_master_wr_u/count_on_beat_sw/2';
+        'axi_master_wr_u/count_done_cmp/1', 'axi_master_wr_u/write_done_logic/2';
+        'axi_master_wr_u/write_done_logic/1', 'axi_master_wr_u/next_line_logic/1';
+        'axi_master_wr_u/next_line_logic/1', 'axi_master_wr_u/request_next_line/1'};
+    missingAxiWrInternalEdges = {};
+    for i = 1:size(axiWrInternalEdges, 1)
+        if ~has_connection(mdlName, axiWrInternalEdges{i, 1}, axiWrInternalEdges{i, 2})
+            missingAxiWrInternalEdges{end+1} = sprintf('%s -> %s', axiWrInternalEdges{i, 1}, axiWrInternalEdges{i, 2}); %#ok<AGROW>
+        end
+    end
+
+    result.missing_axi_wr_blocks = missingAxiWrBlocks;
+    result.axi_wr_structure_ok = isempty(missingAxiWrBlocks);
+    result.missing_axi_wr_internal_edges = missingAxiWrInternalEdges;
+    result.axi_wr_semantics_ok = isempty(missingAxiWrInternalEdges);
     result.pass = result.compile_update_ok && result.decode_path_wiring_ok && ...
         result.addr_gen_structure_ok && result.kv_constant_values_ok && ...
-        result.kv_internal_semantics_ok && result.axi_rd_structure_ok && result.axi_rd_semantics_ok;
+        result.kv_internal_semantics_ok && result.axi_rd_structure_ok && result.axi_rd_semantics_ok && ...
+        result.axi_wr_structure_ok && result.axi_wr_semantics_ok;
 
     if result.pass
         fprintf('Stage2 decode internal smoke PASS\n');
@@ -160,6 +191,15 @@ function result = run_stage2_decode_internal_smoke(rootDir)
             fprintf('  Missing axi_master_rd internal edges:\n');
             for i = 1:numel(missingAxiRdInternalEdges)
                 fprintf('    - %s\n', missingAxiRdInternalEdges{i});
+            end
+        end
+        if ~isempty(missingAxiWrBlocks)
+            fprintf('  Missing axi_master_wr blocks: %s\n', strjoin(missingAxiWrBlocks, ', '));
+        end
+        if ~isempty(missingAxiWrInternalEdges)
+            fprintf('  Missing axi_master_wr internal edges:\n');
+            for i = 1:numel(missingAxiWrInternalEdges)
+                fprintf('    - %s\n', missingAxiWrInternalEdges{i});
             end
         end
         error('run_stage2_decode_internal_smoke:Failed', ...

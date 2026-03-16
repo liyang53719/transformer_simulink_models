@@ -294,8 +294,52 @@ function configure_axi_master_wr(subPath)
 
     add_block('simulink/Signal Routing/Goto', [subPath '/_placeholder_comment'], ...
         'Position', [140, 20, 230, 35], 'GotoTag', 'AXI4MasterWriteControllerStub');
+
+    % Write request-hold: keep wr_valid high until burst completion acknowledged.
+    add_block('simulink/Discrete/Unit Delay', [subPath '/wvalid_state_z'], ...
+        'InitialCondition', '0', 'Position', [120, 60, 150, 90]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/request_or_hold'], ...
+        'Operator', 'OR', 'Position', [180, 60, 210, 90]);
+
+    % Burst activity/counter path: start on new request and clear on write_done.
+    add_block('simulink/Discrete/Unit Delay', [subPath '/write_active_z'], ...
+        'InitialCondition', '0', 'Position', [180, 110, 210, 140]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/write_count_z'], ...
+        'InitialCondition', '0', 'Position', [180, 150, 210, 180]);
+    add_block('simulink/Sources/Constant', [subPath '/zero_const'], ...
+        'Value', '0', 'Position', [120, 250, 160, 270]);
+    add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
+        'Value', '1', 'Position', [180, 250, 220, 270]);
+
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/not_write_active'], ...
+        'Operator', 'NOT', 'Position', [240, 110, 270, 140]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/start_write_logic'], ...
+        'Operator', 'AND', 'Position', [300, 110, 330, 140]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/active_or_start'], ...
+        'Operator', 'OR', 'Position', [360, 110, 390, 140]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/beat_fire_logic'], ...
+        'Operator', 'AND', 'Position', [420, 110, 450, 140]);
+    add_block('simulink/Math Operations/Add', [subPath '/count_inc'], ...
+        'Inputs', '++', 'Position', [300, 150, 330, 180]);
+    add_block('simulink/Logic and Bit Operations/Relational Operator', [subPath '/count_done_cmp'], ...
+        'Operator', '>=', 'Position', [360, 150, 390, 180]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/write_done_logic'], ...
+        'Operator', 'AND', 'Position', [420, 150, 450, 180]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/not_write_done'], ...
+        'Operator', 'NOT', 'Position', [480, 150, 510, 180]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/active_hold_logic'], ...
+        'Operator', 'AND', 'Position', [540, 110, 570, 140]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/active_next_logic'], ...
+        'Operator', 'OR', 'Position', [600, 110, 630, 140]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/count_on_beat_sw'], ...
+        'Threshold', '0.5', 'Position', [480, 190, 530, 240]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/count_on_start_sw'], ...
+        'Threshold', '0.5', 'Position', [560, 190, 610, 240]);
+
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wvalid_next_logic'], ...
+        'Operator', 'AND', 'Position', [660, 60, 690, 90]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/next_line_logic'], ...
-        'Operator', 'AND', 'Position', [120, 170, 150, 200]);
+        'Operator', 'AND', 'Position', [660, 150, 690, 180]);
 
     add_block('simulink/Sinks/Out1', [subPath '/wr_data_out'], 'Position', [370, 30, 400, 44]);
     add_block('simulink/Sinks/Out1', [subPath '/wr_addr'], 'Position', [370, 70, 400, 84]);
@@ -306,9 +350,48 @@ function configure_axi_master_wr(subPath)
     safe_add_line(subPath, 'wr_data/1', 'wr_data_out/1');
     safe_add_line(subPath, 'addr_base/1', 'wr_addr/1');
     safe_add_line(subPath, 'burst_len/1', 'wr_len/1');
-    safe_add_line(subPath, 'wr_dvalid/1', 'wr_valid/1');
-    safe_add_line(subPath, 'wr_complete/1', 'next_line_logic/1');
-    safe_add_line(subPath, 'wr_dvalid/1', 'next_line_logic/2');
+
+    safe_add_line(subPath, 'wr_dvalid/1', 'request_or_hold/1');
+    safe_add_line(subPath, 'wvalid_state_z/1', 'request_or_hold/2');
+
+    safe_add_line(subPath, 'write_active_z/1', 'not_write_active/1');
+    safe_add_line(subPath, 'request_or_hold/1', 'start_write_logic/1');
+    safe_add_line(subPath, 'not_write_active/1', 'start_write_logic/2');
+
+    safe_add_line(subPath, 'write_active_z/1', 'active_or_start/1');
+    safe_add_line(subPath, 'start_write_logic/1', 'active_or_start/2');
+    safe_add_line(subPath, 'active_or_start/1', 'beat_fire_logic/1');
+    safe_add_line(subPath, 'wr_dvalid/1', 'beat_fire_logic/2');
+
+    safe_add_line(subPath, 'write_count_z/1', 'count_inc/1');
+    safe_add_line(subPath, 'one_const/1', 'count_inc/2');
+    safe_add_line(subPath, 'count_inc/1', 'count_done_cmp/1');
+    safe_add_line(subPath, 'burst_len/1', 'count_done_cmp/2');
+    safe_add_line(subPath, 'wr_complete/1', 'write_done_logic/1');
+    safe_add_line(subPath, 'count_done_cmp/1', 'write_done_logic/2');
+    safe_add_line(subPath, 'write_done_logic/1', 'not_write_done/1');
+
+    safe_add_line(subPath, 'write_active_z/1', 'active_hold_logic/1');
+    safe_add_line(subPath, 'not_write_done/1', 'active_hold_logic/2');
+    safe_add_line(subPath, 'start_write_logic/1', 'active_next_logic/1');
+    safe_add_line(subPath, 'active_hold_logic/1', 'active_next_logic/2');
+    safe_add_line(subPath, 'active_next_logic/1', 'write_active_z/1');
+
+    safe_add_line(subPath, 'write_count_z/1', 'count_on_beat_sw/1');
+    safe_add_line(subPath, 'beat_fire_logic/1', 'count_on_beat_sw/2');
+    safe_add_line(subPath, 'count_inc/1', 'count_on_beat_sw/3');
+    safe_add_line(subPath, 'count_on_beat_sw/1', 'count_on_start_sw/1');
+    safe_add_line(subPath, 'start_write_logic/1', 'count_on_start_sw/2');
+    safe_add_line(subPath, 'zero_const/1', 'count_on_start_sw/3');
+    safe_add_line(subPath, 'count_on_start_sw/1', 'write_count_z/1');
+
+    safe_add_line(subPath, 'request_or_hold/1', 'wvalid_next_logic/1');
+    safe_add_line(subPath, 'not_write_done/1', 'wvalid_next_logic/2');
+    safe_add_line(subPath, 'wvalid_next_logic/1', 'wvalid_state_z/1');
+    safe_add_line(subPath, 'request_or_hold/1', 'wr_valid/1');
+
+    safe_add_line(subPath, 'write_done_logic/1', 'next_line_logic/1');
+    safe_add_line(subPath, 'write_active_z/1', 'next_line_logic/2');
     safe_add_line(subPath, 'next_line_logic/1', 'request_next_line/1');
 end
 
