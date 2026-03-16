@@ -25,6 +25,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         kvCfg = resolve_kv_addr_config(options);
         ensure_stage2_ports(mdlName);
         ensure_memory_subsystems(mdlName);
+        configure_ctrl_fsm([mdlName '/ctrl_fsm_u']);
         configure_kv_cache_if([mdlName '/kv_cache_if_u']);
         configure_kv_addr_gen([mdlName '/kv_addr_gen_u'], kvCfg);
         configure_axi_master_rd([mdlName '/axi_master_rd_u']);
@@ -110,7 +111,7 @@ function build_kv_memory_stubs(mdlName, stageProfile)
         % Write path hooks (adapted from soc_image_rotation AXI4MasterWriteController).
         safe_add_line(mdlName, 'qkv_proj_u/1', 'axi_master_wr_u/1');
         safe_add_line(mdlName, 'kv_cache_wr_en/1', 'axi_master_wr_u/2');
-        safe_add_line(mdlName, 'done/1', 'axi_master_wr_u/3');
+          safe_add_line(mdlName, 'ctrl_fsm_u/1', 'axi_master_wr_u/3');
         safe_add_line(mdlName, 'kv_addr_gen_u/3', 'axi_master_wr_u/4');
         safe_add_line(mdlName, 'kv_addr_gen_u/4', 'axi_master_wr_u/5');
         safe_add_line(mdlName, 'axi_master_wr_u/2', 'kv_mem_wr_addr/1');
@@ -118,8 +119,9 @@ function build_kv_memory_stubs(mdlName, stageProfile)
         safe_add_line(mdlName, 'axi_master_wr_u/4', 'kv_mem_wr_valid/1');
 
         % Minimal task-level control placeholders for V2 ports.
-        safe_add_line(mdlName, 'in_valid/1', 'busy/1');
-        safe_add_line(mdlName, 'done/1', 'irq/1');
+          safe_add_line(mdlName, 'ctrl_fsm_u/2', 'busy/1');
+          safe_add_line(mdlName, 'ctrl_fsm_u/1', 'done/1');
+          safe_add_line(mdlName, 'ctrl_fsm_u/1', 'irq/1');
         safe_add_line(mdlName, 'cfg_token_pos/1', 'error_code/1');
         safe_add_line(mdlName, 'stop_req/1', 'ctrl_fsm_u/3');
 
@@ -185,8 +187,6 @@ function configure_axi_master_rd(subPath)
     add_block('simulink/Sources/In1', [subPath '/addr_base'], 'Position', [20, 190, 50, 204]);
     add_block('simulink/Sources/In1', [subPath '/burst_len'], 'Position', [20, 230, 50, 244]);
 
-    add_block('simulink/Signal Routing/Goto', [subPath '/_placeholder_comment'], ...
-        'Position', [140, 20, 230, 35], 'GotoTag', 'AXI4MasterReadControllerStub');
     % Address channel request-hold: keep avalid asserted until arready handshake.
     add_block('simulink/Discrete/Unit Delay', [subPath '/avalid_state_z'], ...
         'InitialCondition', '0', 'Position', [120, 110, 150, 140]);
@@ -292,9 +292,6 @@ function configure_axi_master_wr(subPath)
     add_block('simulink/Sources/In1', [subPath '/addr_base'], 'Position', [20, 150, 50, 164]);
     add_block('simulink/Sources/In1', [subPath '/burst_len'], 'Position', [20, 190, 50, 204]);
 
-    add_block('simulink/Signal Routing/Goto', [subPath '/_placeholder_comment'], ...
-        'Position', [140, 20, 230, 35], 'GotoTag', 'AXI4MasterWriteControllerStub');
-
     % Write request-hold: keep wr_valid high until burst completion acknowledged.
     add_block('simulink/Discrete/Unit Delay', [subPath '/wvalid_state_z'], ...
         'InitialCondition', '0', 'Position', [120, 60, 150, 90]);
@@ -393,6 +390,36 @@ function configure_axi_master_wr(subPath)
     safe_add_line(subPath, 'write_done_logic/1', 'next_line_logic/1');
     safe_add_line(subPath, 'write_active_z/1', 'next_line_logic/2');
     safe_add_line(subPath, 'next_line_logic/1', 'request_next_line/1');
+end
+
+function configure_ctrl_fsm(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 40, 50, 54]);
+    add_block('simulink/Sources/In1', [subPath '/start'], 'Position', [20, 90, 50, 104]);
+    add_block('simulink/Sources/In1', [subPath '/stop_req'], 'Position', [20, 140, 50, 154]);
+
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/busy_or'], ...
+        'Operator', 'OR', 'Position', [120, 55, 150, 95]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/busy_and_not_stop'], ...
+        'Operator', 'AND', 'Position', [190, 70, 220, 110]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/not_stop'], ...
+        'Operator', 'NOT', 'Position', [120, 130, 150, 160]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/done_logic'], ...
+        'Operator', 'AND', 'Position', [260, 95, 290, 125]);
+
+    add_block('simulink/Sinks/Out1', [subPath '/done_out'], 'Position', [350, 95, 380, 109]);
+    add_block('simulink/Sinks/Out1', [subPath '/busy_out'], 'Position', [350, 55, 380, 69]);
+
+    safe_add_line(subPath, 'mode_decode/1', 'busy_or/1');
+    safe_add_line(subPath, 'start/1', 'busy_or/2');
+    safe_add_line(subPath, 'busy_or/1', 'busy_and_not_stop/1');
+    safe_add_line(subPath, 'stop_req/1', 'not_stop/1');
+    safe_add_line(subPath, 'not_stop/1', 'busy_and_not_stop/2');
+    safe_add_line(subPath, 'busy_and_not_stop/1', 'busy_out/1');
+    safe_add_line(subPath, 'start/1', 'done_logic/1');
+    safe_add_line(subPath, 'stop_req/1', 'done_logic/2');
+    safe_add_line(subPath, 'done_logic/1', 'done_out/1');
 end
 
 function configure_ddr_model_if(subPath)
