@@ -7,7 +7,7 @@
   - `run_m1_minimal_regression`
 - 运行 M1 真实参考回归（接入 +qwen2 / +qwen2_quant）：
   - `run_m1_real_reference_regression(paramsFile)`
-  - `run_m1_real_reference_regression('module_awq')`
+    - `run_m1_real_reference_regression('module_awq')`
     - `run_m1_real_reference_regression('module_awq','RunStage2FastSmoke',true)`
   - `run_m1_real_reference_regression('module_gptq')`
   - `run_m1_real_reference_regression('module_gguf')`
