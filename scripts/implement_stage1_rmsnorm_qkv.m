@@ -73,11 +73,55 @@ function build_prefill_path(mdlName, stageProfile)
     safe_add_line(mdlName, 'rmsnorm_u/1', 'qkv_proj_u/1');
 
     if stageProfile == "stage2_memory_ready"
+        safe_add_line(mdlName, 'w_gamma_ddr_data/1', 'rmsnorm_u/3');
+        safe_add_line(mdlName, 'w_gamma_ddr_valid/1', 'rmsnorm_u/4');
+        force_add_line(mdlName, 'rmsnorm_u/2', 'w_gamma_req_addr/1');
+        force_add_line(mdlName, 'rmsnorm_u/3', 'w_gamma_req_valid/1');
+
+        safe_add_line(mdlName, 'w_qkv_q_ddr_data/1', 'qkv_proj_u/2');
+        safe_add_line(mdlName, 'w_qkv_q_ddr_valid/1', 'qkv_proj_u/3');
+        safe_add_line(mdlName, 'w_qkv_k_ddr_data/1', 'qkv_proj_u/4');
+        safe_add_line(mdlName, 'w_qkv_k_ddr_valid/1', 'qkv_proj_u/5');
+        safe_add_line(mdlName, 'w_qkv_v_ddr_data/1', 'qkv_proj_u/6');
+        safe_add_line(mdlName, 'w_qkv_v_ddr_valid/1', 'qkv_proj_u/7');
+        force_add_line(mdlName, 'qkv_proj_u/2', 'w_qkv_q_req_addr/1');
+        force_add_line(mdlName, 'qkv_proj_u/3', 'w_qkv_q_req_valid/1');
+        force_add_line(mdlName, 'qkv_proj_u/4', 'w_qkv_k_req_addr/1');
+        force_add_line(mdlName, 'qkv_proj_u/5', 'w_qkv_k_req_valid/1');
+        force_add_line(mdlName, 'qkv_proj_u/6', 'w_qkv_v_req_addr/1');
+        force_add_line(mdlName, 'qkv_proj_u/7', 'w_qkv_v_req_valid/1');
+
+        safe_add_line(mdlName, 'w_attn_q_ddr_data/1', 'attention_u/2');
+        safe_add_line(mdlName, 'w_attn_q_ddr_valid/1', 'attention_u/3');
+        safe_add_line(mdlName, 'w_attn_k_ddr_data/1', 'attention_u/4');
+        safe_add_line(mdlName, 'w_attn_k_ddr_valid/1', 'attention_u/5');
+        safe_add_line(mdlName, 'w_attn_v_ddr_data/1', 'attention_u/6');
+        safe_add_line(mdlName, 'w_attn_v_ddr_valid/1', 'attention_u/7');
+        force_add_line(mdlName, 'attention_u/2', 'w_attn_q_req_addr/1');
+        force_add_line(mdlName, 'attention_u/3', 'w_attn_q_req_valid/1');
+        force_add_line(mdlName, 'attention_u/4', 'w_attn_k_req_addr/1');
+        force_add_line(mdlName, 'attention_u/5', 'w_attn_k_req_valid/1');
+        force_add_line(mdlName, 'attention_u/6', 'w_attn_v_req_addr/1');
+        force_add_line(mdlName, 'attention_u/7', 'w_attn_v_req_valid/1');
+
+        safe_add_line(mdlName, 'w_ffn_up_ddr_data/1', 'ffn_swiglu_u/2');
+        safe_add_line(mdlName, 'w_ffn_up_ddr_valid/1', 'ffn_swiglu_u/3');
+        safe_add_line(mdlName, 'w_ffn_gate_ddr_data/1', 'ffn_swiglu_u/4');
+        safe_add_line(mdlName, 'w_ffn_gate_ddr_valid/1', 'ffn_swiglu_u/5');
+        force_add_line(mdlName, 'ffn_swiglu_u/2', 'w_ffn_up_req_addr/1');
+        force_add_line(mdlName, 'ffn_swiglu_u/3', 'w_ffn_up_req_valid/1');
+        force_add_line(mdlName, 'ffn_swiglu_u/4', 'w_ffn_gate_req_addr/1');
+        force_add_line(mdlName, 'ffn_swiglu_u/5', 'w_ffn_gate_req_valid/1');
+
+        safe_add_line(mdlName, 'cfg_rope_theta_scale/1', 'rope_u/3');
+        safe_add_line(mdlName, 'cfg_rope_sin_mix_scale/1', 'rope_u/4');
+
         safe_add_line(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
         safe_add_line(mdlName, 'mode_decode/1', 'kv_cache_if_u/3');
         force_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
         force_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
         force_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
+        force_add_line(mdlName, 'in_residual/1', 'residual_u/2');
         force_add_line(mdlName, 'residual_u/1', 'out_hidden/1');
     else
         safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
@@ -157,6 +201,27 @@ function ensure_stage2_ports(mdlName)
     ensure_outport(mdlName, 'kv_mem_wr_addr', [1650, 760, 1680, 774]);
     ensure_outport(mdlName, 'kv_mem_wr_len', [1650, 800, 1680, 814]);
     ensure_outport(mdlName, 'kv_mem_wr_valid', [1650, 840, 1680, 854]);
+
+    inNames = {
+        'w_gamma_ddr_data', 'w_gamma_ddr_valid', ...
+        'w_qkv_q_ddr_data', 'w_qkv_q_ddr_valid', 'w_qkv_k_ddr_data', 'w_qkv_k_ddr_valid', 'w_qkv_v_ddr_data', 'w_qkv_v_ddr_valid', ...
+        'w_attn_q_ddr_data', 'w_attn_q_ddr_valid', 'w_attn_k_ddr_data', 'w_attn_k_ddr_valid', 'w_attn_v_ddr_data', 'w_attn_v_ddr_valid', ...
+        'w_ffn_up_ddr_data', 'w_ffn_up_ddr_valid', 'w_ffn_gate_ddr_data', 'w_ffn_gate_ddr_valid', ...
+        'cfg_rope_theta_scale', 'cfg_rope_sin_mix_scale'};
+    for i = 1:numel(inNames)
+        y = 900 + 40 * i;
+        ensure_inport(mdlName, inNames{i}, [20, y, 50, y + 14]);
+    end
+
+    outNames = {
+        'w_gamma_req_addr', 'w_gamma_req_valid', ...
+        'w_qkv_q_req_addr', 'w_qkv_q_req_valid', 'w_qkv_k_req_addr', 'w_qkv_k_req_valid', 'w_qkv_v_req_addr', 'w_qkv_v_req_valid', ...
+        'w_attn_q_req_addr', 'w_attn_q_req_valid', 'w_attn_k_req_addr', 'w_attn_k_req_valid', 'w_attn_v_req_addr', 'w_attn_v_req_valid', ...
+        'w_ffn_up_req_addr', 'w_ffn_up_req_valid', 'w_ffn_gate_req_addr', 'w_ffn_gate_req_valid'};
+    for i = 1:numel(outNames)
+        y = 900 + 40 * i;
+        ensure_outport(mdlName, outNames{i}, [1650, y, 1680, y + 14]);
+    end
 end
 
 function ensure_memory_subsystems(mdlName)
@@ -578,6 +643,8 @@ function configure_rmsnorm(subPath)
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 40, 60, 54]);
     add_block('simulink/Sources/In1', [subPath '/eps_in'], 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Sources/In1', [subPath '/gamma_ddr_data'], 'Position', [30, 165, 60, 179]);
+    add_block('simulink/Sources/In1', [subPath '/gamma_ddr_valid'], 'Position', [30, 200, 60, 214]);
     add_block('simulink/Math Operations/Product', [subPath '/x_square'], ...
         'Inputs', '**', 'Position', [110, 35, 145, 65]);
     add_block('simulink/Math Operations/Add', [subPath '/var_eps_sum'], ...
@@ -596,7 +663,8 @@ function configure_rmsnorm(subPath)
     safe_add_line(subPath, 'x_in/1', 'x_norm/1');
     safe_add_line(subPath, 'sqrt_denom/1', 'x_norm/2');
 
-    gammaOut = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', 410, 55, '1.0');
+    gammaOut = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', ...
+        'gamma_ddr_data/1', 'gamma_ddr_valid/1', 410, 55, '1.0');
     safe_add_line(subPath, gammaOut, 'y_out/1');
 end
 
@@ -604,15 +672,24 @@ function configure_qkv_proj(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/q_ddr_data'], 'Position', [30, 10, 60, 24]);
+    add_block('simulink/Sources/In1', [subPath '/q_ddr_valid'], 'Position', [30, 30, 60, 44]);
+    add_block('simulink/Sources/In1', [subPath '/k_ddr_data'], 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Sources/In1', [subPath '/k_ddr_valid'], 'Position', [30, 130, 60, 144]);
+    add_block('simulink/Sources/In1', [subPath '/v_ddr_data'], 'Position', [30, 210, 60, 224]);
+    add_block('simulink/Sources/In1', [subPath '/v_ddr_valid'], 'Position', [30, 230, 60, 244]);
     add_block('simulink/Math Operations/Add', [subPath '/qk_sum'], ...
         'Inputs', '++', 'Position', [500, 45, 535, 85]);
     add_block('simulink/Math Operations/Add', [subPath '/qkv_sum'], ...
         'Inputs', '++', 'Position', [570, 60, 605, 100]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [650, 75, 680, 89]);
 
-    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 110, 15, '0.6');
-    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 110, 85, '0.4');
-    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 110, 155, '1.0');
+    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
+        'q_ddr_data/1', 'q_ddr_valid/1', 110, 15, '0.6');
+    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
+        'k_ddr_data/1', 'k_ddr_valid/1', 110, 105, '0.4');
+    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
+        'v_ddr_data/1', 'v_ddr_valid/1', 110, 195, '1.0');
 
     safe_add_line(subPath, qOut, 'qk_sum/1');
     safe_add_line(subPath, kOut, 'qk_sum/2');
@@ -625,6 +702,12 @@ function configure_attention(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/q_ddr_data'], 'Position', [30, 10, 60, 24]);
+    add_block('simulink/Sources/In1', [subPath '/q_ddr_valid'], 'Position', [30, 30, 60, 44]);
+    add_block('simulink/Sources/In1', [subPath '/k_ddr_data'], 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Sources/In1', [subPath '/k_ddr_valid'], 'Position', [30, 130, 60, 144]);
+    add_block('simulink/Sources/In1', [subPath '/v_ddr_data'], 'Position', [30, 210, 60, 224]);
+    add_block('simulink/Sources/In1', [subPath '/v_ddr_valid'], 'Position', [30, 230, 60, 244]);
     add_block('simulink/Math Operations/Product', [subPath '/score_mul'], ...
         'Inputs', '**', 'Position', [210, 45, 245, 85]);
     add_block('simulink/Math Operations/Abs', [subPath '/score_abs'], ...
@@ -639,9 +722,12 @@ function configure_attention(subPath)
         'Inputs', '**', 'Position', [500, 75, 535, 115]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [580, 90, 610, 104]);
 
-    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 110, 15, '0.6');
-    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 110, 75, '0.4');
-    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 110, 135, '1.0');
+    qOut = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
+        'q_ddr_data/1', 'q_ddr_valid/1', 110, 15, '0.6');
+    kOut = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
+        'k_ddr_data/1', 'k_ddr_valid/1', 110, 95, '0.4');
+    vOut = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
+        'v_ddr_data/1', 'v_ddr_valid/1', 110, 175, '1.0');
 
     safe_add_line(subPath, qOut, 'score_mul/1');
     safe_add_line(subPath, kOut, 'score_mul/2');
@@ -659,6 +745,10 @@ function configure_ffn_swiglu(subPath)
     clear_subsystem_contents(subPath);
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/up_ddr_data'], 'Position', [30, 10, 60, 24]);
+    add_block('simulink/Sources/In1', [subPath '/up_ddr_valid'], 'Position', [30, 30, 60, 44]);
+    add_block('simulink/Sources/In1', [subPath '/gate_ddr_data'], 'Position', [30, 155, 60, 169]);
+    add_block('simulink/Sources/In1', [subPath '/gate_ddr_valid'], 'Position', [30, 175, 60, 189]);
     add_block('simulink/Math Operations/Abs', [subPath '/gate_abs'], ...
         'Position', [210, 85, 245, 115]);
     add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
@@ -673,8 +763,10 @@ function configure_ffn_swiglu(subPath)
         'Gain', '0.8', 'Position', [500, 80, 560, 105]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [620, 90, 650, 104]);
 
-    upOut = add_streamed_weight_mul(subPath, 'up', 'x_in/1', 110, 15, '1.4');
-    gateOut = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', 110, 95, '0.9');
+    upOut = add_streamed_weight_mul(subPath, 'up', 'x_in/1', ...
+        'up_ddr_data/1', 'up_ddr_valid/1', 110, 15, '1.4');
+    gateOut = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', ...
+        'gate_ddr_data/1', 'gate_ddr_valid/1', 110, 145, '0.9');
 
     safe_add_line(subPath, gateOut, 'gate_abs/1');
     safe_add_line(subPath, 'gate_abs/1', 'gate_den/1');
@@ -687,17 +779,23 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'down_proj/1', 'y_out/1');
 end
 
-function mulOut = add_streamed_weight_mul(subPath, prefix, inSig, x0, y0, defaultWeight)
-    % Simulate off-chip DDR weight fetch + on-chip SRAM cache before multiply.
+function mulOut = add_streamed_weight_mul(subPath, prefix, inSig, ddrDataSig, ddrValidSig, x0, y0, defaultWeight)
+    % Model off-chip DDR fetch + on-chip SRAM cache using HDL RAMS blocks.
     addrZ = [prefix '_ddr_addr_z'];
     addrStep = [prefix '_addr_step'];
     addrInc = [prefix '_addr_inc'];
-    ddrWeight = [prefix '_ddr_weight'];
-    ddrReq = [prefix '_ddr_req_valid'];
-    sramW = [prefix '_sram_weight_z'];
-    sramValid = [prefix '_sram_valid_z'];
-    sramSel = [prefix '_sram_sel'];
+    reqValid = [prefix '_req_valid_const'];
+    sram = [prefix '_sram'];
+    addrCast = [prefix '_addr_u8'];
+    ddrDataCast = [prefix '_ddr_data_u8'];
+    ddrValidCast = [prefix '_ddr_valid_bool'];
+    sramDataCast = [prefix '_sram_data_double'];
+    sramValid = [prefix '_sram_data_valid_z'];
+    reqAddrOut = [prefix '_ddr_req_addr'];
+    reqValidOut = [prefix '_ddr_req_valid'];
+    sramSel = [prefix '_sram_data_sel'];
     validOr = [prefix '_valid_or'];
+    defaultConst = [prefix '_default_w'];
     mulBlk = [prefix '_mul'];
 
     add_block('simulink/Discrete/Unit Delay', [subPath '/' addrZ], ...
@@ -706,34 +804,56 @@ function mulOut = add_streamed_weight_mul(subPath, prefix, inSig, x0, y0, defaul
         'Value', '1', 'Position', [x0 + 45, y0, x0 + 85, y0 + 20]);
     add_block('simulink/Math Operations/Add', [subPath '/' addrInc], ...
         'Inputs', '++', 'Position', [x0 + 95, y0 - 2, x0 + 130, y0 + 22]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' addrCast], ...
+        'OutDataTypeStr', 'uint8', 'Position', [x0 + 145, y0 - 2, x0 + 185, y0 + 22]);
 
-    add_block('simulink/Sources/Constant', [subPath '/' ddrWeight], ...
-        'Value', defaultWeight, 'Position', [x0, y0 + 45, x0 + 45, y0 + 65]);
-    add_block('simulink/Sources/Constant', [subPath '/' ddrReq], ...
-        'Value', '1', 'Position', [x0, y0 + 75, x0 + 45, y0 + 95]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/' sramW], ...
-        'InitialCondition', defaultWeight, 'Position', [x0 + 95, y0 + 45, x0 + 125, y0 + 65]);
+    add_block('simulink/Sources/Constant', [subPath '/' reqValid], ...
+        'Value', '1', 'Position', [x0 + 5, y0 + 70, x0 + 45, y0 + 90]);
+    add_block('simulink/Sources/Constant', [subPath '/' defaultConst], ...
+        'Value', defaultWeight, 'Position', [x0 + 5, y0 + 45, x0 + 45, y0 + 65]);
+    add_block('hdlsllib/HDL RAMs/Simple Dual Port RAM', [subPath '/' sram], ...
+        'Position', [x0 + 95, y0 + 30, x0 + 165, y0 + 120]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' ddrDataCast], ...
+        'OutDataTypeStr', 'uint8', 'Position', [x0 + 55, y0 + 45, x0 + 90, y0 + 65]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' ddrValidCast], ...
+        'OutDataTypeStr', 'boolean', 'Position', [x0 + 55, y0 + 75, x0 + 90, y0 + 95]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDataCast], ...
+        'OutDataTypeStr', 'double', 'Position', [x0 + 180, y0 + 45, x0 + 215, y0 + 65]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/' sramValid], ...
-        'InitialCondition', '0', 'Position', [x0 + 95, y0 + 75, x0 + 125, y0 + 95]);
+        'InitialCondition', '0', 'Position', [x0 + 180, y0 + 70, x0 + 210, y0 + 90]);
+    add_block('simulink/Sinks/Out1', [subPath '/' reqAddrOut], 'Position', [x0 + 180, y0 - 5, x0 + 210, y0 + 9]);
+    add_block('simulink/Sinks/Out1', [subPath '/' reqValidOut], 'Position', [x0 + 180, y0 + 20, x0 + 210, y0 + 34]);
     add_block('simulink/Signal Routing/Switch', [subPath '/' sramSel], ...
-        'Threshold', '0.5', 'Position', [x0 + 145, y0 + 40, x0 + 195, y0 + 90]);
+        'Threshold', '0.5', 'Position', [x0 + 230, y0 + 40, x0 + 280, y0 + 90]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/' validOr], ...
-        'Operator', 'OR', 'Position', [x0 + 145, y0 + 75, x0 + 175, y0 + 105]);
+        'Operator', 'OR', 'Position', [x0 + 230, y0 + 95, x0 + 260, y0 + 125]);
 
     add_block('simulink/Math Operations/Product', [subPath '/' mulBlk], ...
-        'Inputs', '**', 'Position', [x0 + 220, y0 + 45, x0 + 255, y0 + 85]);
+        'Inputs', '**', 'Position', [x0 + 305, y0 + 45, x0 + 340, y0 + 85]);
 
     safe_add_line(subPath, [addrZ '/1'], [addrInc '/1']);
     safe_add_line(subPath, [addrStep '/1'], [addrInc '/2']);
     safe_add_line(subPath, [addrInc '/1'], [addrZ '/1']);
+    safe_add_line(subPath, [addrInc '/1'], [addrCast '/1']);
+    safe_add_line(subPath, ddrDataSig, [ddrDataCast '/1']);
+    safe_add_line(subPath, ddrValidSig, [ddrValidCast '/1']);
 
-    safe_add_line(subPath, [sramW '/1'], [sramSel '/1']);
+    safe_add_line(subPath, [addrCast '/1'], [reqAddrOut '/1']);
+    safe_add_line(subPath, [reqValid '/1'], [reqValidOut '/1']);
+
+    % Simple Dual Port RAM expected ports: wr_addr, din, we, rd_addr -> dout.
+    safe_add_line(subPath, [addrCast '/1'], [sram '/1']);
+    safe_add_line(subPath, [ddrDataCast '/1'], [sram '/2']);
+    safe_add_line(subPath, [ddrValidCast '/1'], [sram '/3']);
+    safe_add_line(subPath, [addrCast '/1'], [sram '/4']);
+
+    safe_add_line(subPath, [sram '/1'], [sramDataCast '/1']);
+    safe_add_line(subPath, [sramDataCast '/1'], [sramSel '/1']);
     safe_add_line(subPath, [sramValid '/1'], [sramSel '/2']);
-    safe_add_line(subPath, [ddrWeight '/1'], [sramSel '/3']);
-    safe_add_line(subPath, [sramSel '/1'], [sramW '/1']);
+    safe_add_line(subPath, [defaultConst '/1'], [sramSel '/3']);
 
     safe_add_line(subPath, [sramValid '/1'], [validOr '/1']);
-    safe_add_line(subPath, [ddrReq '/1'], [validOr '/2']);
+    safe_add_line(subPath, [ddrValidCast '/1'], [validOr '/2']);
     safe_add_line(subPath, [validOr '/1'], [sramValid '/1']);
 
     safe_add_line(subPath, inSig, [mulBlk '/1']);
@@ -745,19 +865,23 @@ end
 function configure_residual(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/res_delay'], ...
-        'InitialCondition', '0', 'Position', [110, 75, 150, 95]);
-    add_block('simulink/Math Operations/Gain', [subPath '/res_scale'], ...
-        'Gain', '0.2', 'Position', [175, 105, 235, 130]);
+    add_block('simulink/Sources/In1', [subPath '/x_main'], 'Position', [30, 55, 60, 69]);
+    add_block('simulink/Sources/In1', [subPath '/x_skip'], 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/main_delay'], ...
+        'InitialCondition', '0', 'Position', [110, 55, 150, 75]);
+    add_block('simulink/Math Operations/Gain', [subPath '/main_scale'], ...
+        'Gain', '0.8', 'Position', [180, 50, 240, 75]);
+    add_block('simulink/Math Operations/Gain', [subPath '/skip_scale'], ...
+        'Gain', '1.0', 'Position', [180, 105, 240, 130]);
     add_block('simulink/Math Operations/Sum', [subPath '/res_sum'], ...
-        'Inputs', '++', 'Position', [200, 65, 230, 105]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [300, 75, 330, 89]);
+        'Inputs', '++', 'Position', [280, 70, 310, 110]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [360, 85, 390, 99]);
 
-    safe_add_line(subPath, 'x_in/1', 'res_delay/1');
-    safe_add_line(subPath, 'x_in/1', 'res_sum/1');
-    safe_add_line(subPath, 'res_delay/1', 'res_scale/1');
-    safe_add_line(subPath, 'res_scale/1', 'res_sum/2');
+    safe_add_line(subPath, 'x_main/1', 'main_delay/1');
+    safe_add_line(subPath, 'main_delay/1', 'main_scale/1');
+    safe_add_line(subPath, 'x_skip/1', 'skip_scale/1');
+    safe_add_line(subPath, 'main_scale/1', 'res_sum/1');
+    safe_add_line(subPath, 'skip_scale/1', 'res_sum/2');
     safe_add_line(subPath, 'res_sum/1', 'y_out/1');
 end
 
@@ -766,26 +890,30 @@ function configure_rope(subPath)
 
     add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
     add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [30, 130, 60, 144]);
-    add_block('simulink/Math Operations/Gain', [subPath '/phase_scale'], ...
-        'Gain', '0.01', 'Position', [110, 125, 170, 150]);
-    add_block('simulink/Math Operations/Trigonometric Function', [subPath '/cos_phase'], ...
-        'Operator', 'cos', 'Position', [220, 95, 270, 120]);
-    add_block('simulink/Math Operations/Trigonometric Function', [subPath '/sin_phase'], ...
-        'Operator', 'sin', 'Position', [220, 135, 270, 160]);
-    add_block('simulink/Math Operations/Gain', [subPath '/sin_scale'], ...
-        'Gain', '0.1', 'Position', [300, 135, 360, 160]);
+    add_block('simulink/Sources/In1', [subPath '/theta_scale'], 'Position', [30, 170, 60, 184]);
+    add_block('simulink/Sources/In1', [subPath '/sin_mix_scale'], 'Position', [30, 205, 60, 219]);
+    add_block('simulink/Math Operations/Product', [subPath '/phase_mul'], ...
+        'Inputs', '**', 'Position', [110, 135, 145, 165]);
+    add_block('hdlsllib/Lookup Tables/Cosine HDL Optimized', [subPath '/cos_phase'], ...
+        'Position', [200, 95, 260, 125]);
+    add_block('hdlsllib/Lookup Tables/Sine HDL Optimized', [subPath '/sin_phase'], ...
+        'Position', [200, 140, 260, 170]);
+    add_block('simulink/Math Operations/Product', [subPath '/sin_scaled'], ...
+        'Inputs', '**', 'Position', [300, 140, 335, 170]);
     add_block('simulink/Math Operations/Add', [subPath '/rot_scale_sum'], ...
         'Inputs', '++', 'Position', [390, 105, 420, 145]);
     add_block('simulink/Math Operations/Product', [subPath '/apply_rot_scale'], ...
         'Inputs', '**', 'Position', [460, 80, 500, 120]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [560, 90, 590, 104]);
 
-    safe_add_line(subPath, 'token_pos/1', 'phase_scale/1');
-    safe_add_line(subPath, 'phase_scale/1', 'cos_phase/1');
-    safe_add_line(subPath, 'phase_scale/1', 'sin_phase/1');
+    safe_add_line(subPath, 'token_pos/1', 'phase_mul/1');
+    safe_add_line(subPath, 'theta_scale/1', 'phase_mul/2');
+    safe_add_line(subPath, 'phase_mul/1', 'cos_phase/1');
+    safe_add_line(subPath, 'phase_mul/1', 'sin_phase/1');
     safe_add_line(subPath, 'cos_phase/1', 'rot_scale_sum/1');
-    safe_add_line(subPath, 'sin_phase/1', 'sin_scale/1');
-    safe_add_line(subPath, 'sin_scale/1', 'rot_scale_sum/2');
+    safe_add_line(subPath, 'sin_phase/1', 'sin_scaled/1');
+    safe_add_line(subPath, 'sin_mix_scale/1', 'sin_scaled/2');
+    safe_add_line(subPath, 'sin_scaled/1', 'rot_scale_sum/2');
     safe_add_line(subPath, 'x_in/1', 'apply_rot_scale/1');
     safe_add_line(subPath, 'rot_scale_sum/1', 'apply_rot_scale/2');
     safe_add_line(subPath, 'apply_rot_scale/1', 'y_out/1');

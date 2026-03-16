@@ -16,6 +16,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     cfgVariant = struct('rd_base', 64, 'wr_base', 128, 'stride_bytes', 4, 'decode_burst_len', 2);
 
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
+    assert_model_upgrade_markers(rootDir);
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
@@ -35,5 +36,28 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     else
         fprintf('Stage2 fast smoke suite FAIL\n');
         error('run_stage2_smoke_suite_fast:Failed', 'One or more stage2 smoke checks failed');
+    end
+end
+
+function assert_model_upgrade_markers(rootDir)
+    mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
+    [~, mdlName] = fileparts(mdlPath);
+    load_system(mdlPath);
+    set_param(mdlName, 'SimulationCommand', 'update');
+
+    requiredBlocks = {
+        [mdlName '/rmsnorm_u/gamma_sram'];
+        [mdlName '/qkv_proj_u/q_sram'];
+        [mdlName '/attention_u/v_sram'];
+        [mdlName '/ffn_swiglu_u/gate_sram'];
+        [mdlName '/rope_u/cos_phase'];
+        [mdlName '/rope_u/sin_phase'];
+    };
+
+    for i = 1:numel(requiredBlocks)
+        if getSimulinkBlockHandle(requiredBlocks{i}) == -1
+            error('run_stage2_smoke_suite_fast:MissingUpgradeBlock', ...
+                'Missing required upgraded block: %s', requiredBlocks{i});
+        end
     end
 end
