@@ -89,12 +89,12 @@ function build_decode_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'start/1', 'axi_master_rd_u/4');
         safe_add_line(mdlName, 'kv_addr_gen_u/1', 'axi_master_rd_u/5');
         safe_add_line(mdlName, 'kv_addr_gen_u/2', 'axi_master_rd_u/6');
-        safe_add_line(mdlName, 'axi_master_rd_u/3', 'kv_mem_rd_addr/1');
-        safe_add_line(mdlName, 'axi_master_rd_u/4', 'kv_mem_rd_len/1');
-        safe_add_line(mdlName, 'axi_master_rd_u/5', 'kv_mem_rd_valid/1');
+          force_add_line(mdlName, 'axi_master_rd_u/3', 'kv_mem_rd_addr/1');
+          force_add_line(mdlName, 'axi_master_rd_u/4', 'kv_mem_rd_len/1');
+          force_add_line(mdlName, 'axi_master_rd_u/5', 'kv_mem_rd_valid/1');
 
         % Internal decode closure: historical KV flows into kv_cache_if_u.
-        safe_add_line(mdlName, 'axi_master_rd_u/1', 'kv_cache_if_u/2');
+          force_add_line(mdlName, 'axi_master_rd_u/1', 'kv_cache_if_u/2');
     end
 end
 
@@ -109,25 +109,25 @@ function build_kv_memory_stubs(mdlName, stageProfile)
         safe_add_line(mdlName, 'mode_decode/1', 'kv_addr_gen_u/3');
 
         % Write path hooks (adapted from soc_image_rotation AXI4MasterWriteController).
-        safe_add_line(mdlName, 'qkv_proj_u/1', 'axi_master_wr_u/1');
-        safe_add_line(mdlName, 'kv_cache_wr_en/1', 'axi_master_wr_u/2');
+          safe_add_line(mdlName, 'qkv_proj_u/1', 'axi_master_wr_u/1');
+          safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'axi_master_wr_u/2');
           safe_add_line(mdlName, 'ctrl_fsm_u/1', 'axi_master_wr_u/3');
         safe_add_line(mdlName, 'kv_addr_gen_u/3', 'axi_master_wr_u/4');
         safe_add_line(mdlName, 'kv_addr_gen_u/4', 'axi_master_wr_u/5');
-        safe_add_line(mdlName, 'axi_master_wr_u/2', 'kv_mem_wr_addr/1');
-        safe_add_line(mdlName, 'axi_master_wr_u/3', 'kv_mem_wr_len/1');
-        safe_add_line(mdlName, 'axi_master_wr_u/4', 'kv_mem_wr_valid/1');
+          force_add_line(mdlName, 'axi_master_wr_u/2', 'kv_mem_wr_addr/1');
+          force_add_line(mdlName, 'axi_master_wr_u/3', 'kv_mem_wr_len/1');
+          force_add_line(mdlName, 'axi_master_wr_u/4', 'kv_mem_wr_valid/1');
 
         % Minimal task-level control placeholders for V2 ports.
-          safe_add_line(mdlName, 'ctrl_fsm_u/2', 'busy/1');
-          safe_add_line(mdlName, 'ctrl_fsm_u/1', 'done/1');
-          safe_add_line(mdlName, 'ctrl_fsm_u/1', 'irq/1');
-        safe_add_line(mdlName, 'cfg_token_pos/1', 'error_code/1');
+          force_add_line(mdlName, 'ctrl_fsm_u/2', 'busy/1');
+          force_add_line(mdlName, 'ctrl_fsm_u/1', 'done/1');
+          force_add_line(mdlName, 'ctrl_fsm_u/1', 'irq/1');
+          force_add_line(mdlName, 'cfg_token_pos/1', 'error_code/1');
         safe_add_line(mdlName, 'stop_req/1', 'ctrl_fsm_u/3');
 
         % Feed DDR model interface counter block (3rd fcn-style subsystem).
-        safe_add_line(mdlName, 'kv_mem_rd_valid/1', 'ddr_model_if_u/1');
-        safe_add_line(mdlName, 'kv_mem_wr_valid/1', 'ddr_model_if_u/2');
+          safe_add_line(mdlName, 'axi_master_rd_u/5', 'ddr_model_if_u/1');
+          safe_add_line(mdlName, 'axi_master_wr_u/4', 'ddr_model_if_u/2');
         safe_add_line(mdlName, 'kv_mem_rd_ready/1', 'ddr_model_if_u/3');
         safe_add_line(mdlName, 'kv_mem_wr_ready/1', 'ddr_model_if_u/4');
     end
