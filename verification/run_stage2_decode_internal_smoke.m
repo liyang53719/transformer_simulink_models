@@ -39,7 +39,10 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     end
 
     kvAddrPath = [mdlName '/kv_addr_gen_u'];
-    kvAddrBlocks = {'rd_addr_scale', 'rd_addr_mode_sel', 'wr_addr_scale', 'wr_addr_mode_sel', 'rd_len_mode_sel', 'wr_len_mode_sel'};
+    kvAddrBlocks = {'rd_base_const', 'wr_base_const', 'stride_const', 'decode_burst_const', ...
+        'rd_addr_scale', 'rd_addr_mode_sel', 'rd_addr_add_base', ...
+        'wr_addr_scale', 'wr_addr_mode_sel', 'wr_addr_add_base', ...
+        'rd_len_mode_sel', 'wr_len_mode_sel'};
     missingKvAddrBlocks = {};
     for i = 1:numel(kvAddrBlocks)
         if isempty(find_system(kvAddrPath, 'SearchDepth', 1, 'Name', kvAddrBlocks{i}))
@@ -53,7 +56,19 @@ function result = run_stage2_decode_internal_smoke(rootDir)
     result.missing_kv_addr_blocks = missingKvAddrBlocks;
     result.decode_path_wiring_ok = isempty(missingEdges);
     result.addr_gen_structure_ok = isempty(missingKvAddrBlocks);
-    result.pass = result.compile_update_ok && result.decode_path_wiring_ok && result.addr_gen_structure_ok;
+
+    axiRdPath = [mdlName '/axi_master_rd_u'];
+    axiRdBlocks = {'avalid_state_z', 'addr_hs_logic', 'burst_active_z', 'burst_count_z', 'burst_done_logic'};
+    missingAxiRdBlocks = {};
+    for i = 1:numel(axiRdBlocks)
+        if isempty(find_system(axiRdPath, 'SearchDepth', 1, 'Name', axiRdBlocks{i}))
+            missingAxiRdBlocks{end+1} = axiRdBlocks{i}; %#ok<AGROW>
+        end
+    end
+
+    result.missing_axi_rd_blocks = missingAxiRdBlocks;
+    result.axi_rd_structure_ok = isempty(missingAxiRdBlocks);
+    result.pass = result.compile_update_ok && result.decode_path_wiring_ok && result.addr_gen_structure_ok && result.axi_rd_structure_ok;
 
     if result.pass
         fprintf('Stage2 decode internal smoke PASS\n');
@@ -67,6 +82,9 @@ function result = run_stage2_decode_internal_smoke(rootDir)
         end
         if ~isempty(missingKvAddrBlocks)
             fprintf('  Missing kv_addr_gen blocks: %s\n', strjoin(missingKvAddrBlocks, ', '));
+        end
+        if ~isempty(missingAxiRdBlocks)
+            fprintf('  Missing axi_master_rd blocks: %s\n', strjoin(missingAxiRdBlocks, ', '));
         end
         error('run_stage2_decode_internal_smoke:Failed', ...
             'stage2 decode path or kv address generation check failed');
