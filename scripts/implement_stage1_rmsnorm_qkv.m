@@ -9,6 +9,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     end
 
     stageProfile = lower(string(getFieldOr(options, 'StageProfile', 'stage1')));
+    prefillCfg = resolve_prefill_schedule_config(rootDir, options);
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     if ~exist(mdlPath, 'file')
@@ -33,6 +34,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         kvCfg = resolve_kv_addr_config(options);
         ensure_weight_bus_objects();
         ensure_stage2_ports(mdlName);
+        remove_top_level_weight_req_merge_blocks(mdlName);
         ensure_memory_subsystems(mdlName);
         configure_ctrl_fsm([mdlName '/ctrl_fsm_u']);
         configure_kv_cache_if([mdlName '/kv_cache_if_u']);
@@ -41,12 +43,15 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         configure_axi_master_wr([mdlName '/axi_master_wr_u']);
         configure_ddr_model_if([mdlName '/ddr_model_if_u']);
         configure_weight_addr_map([mdlName '/weight_addr_map_u']);
+        configure_prefill_scheduler([mdlName '/prefill_sched_u'], prefillCfg);
+        configure_weight_req_bridge([mdlName '/w_req_bridge_u']);
         configure_axi_weight_rd([mdlName '/axi_weight_rd_u']);
     end
 
     build_prefill_path(mdlName, stageProfile);
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
+    arrange_model_systems(mdlName, stageProfile);
 
     save_system(mdlName, mdlPath, 'OverwriteIfChangedOnDisk', true);
     close_system(mdlName, 0);
@@ -66,6 +71,16 @@ function cfg = resolve_kv_addr_config(options)
     cfg.wr_base = getFieldOr(userCfg, 'wr_base', 0);
     cfg.stride_bytes = getFieldOr(userCfg, 'stride_bytes', 2);
     cfg.decode_burst_len = getFieldOr(userCfg, 'decode_burst_len', 1);
+end
+
+function cfg = resolve_prefill_schedule_config(rootDir, options)
+    if isfield(options, 'PrefillScheduleConfig') && isstruct(options.PrefillScheduleConfig)
+        cfg = options.PrefillScheduleConfig;
+        return;
+    end
+
+    addpath(fullfile(rootDir, 'scripts'));
+    cfg = prefill_attention_schedule_32x32();
 end
 
 function build_prefill_path(mdlName, stageProfile)
@@ -116,7 +131,7 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'attention_u/2', 'attn_req_sel/1');
         force_add_line(mdlName, 'ffn_swiglu_u/2', 'ffn_req_sel/1');
 
-        add_or_reset_bus_creator(mdlName, 'w_req_bc', 18, [1320, 900, 1360, 1120], 'WeightReqBus');
+        add_or_reset_bus_creator(mdlName, 'w_req_bc', 18, [1320, 900, 1360, 1120]);
         try
             set_param([mdlName '/w_req_bc'], 'InputSignalNames', ...
                 'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
@@ -140,33 +155,60 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'ffn_req_sel/2', 'w_req_bc/16');
         force_add_line(mdlName, 'ffn_req_sel/3', 'w_req_bc/17');
         force_add_line(mdlName, 'ffn_req_sel/4', 'w_req_bc/18');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 1, 'gamma_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 2, 'gamma_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 3, 'qkv_q_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 4, 'qkv_q_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 5, 'qkv_k_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 6, 'qkv_k_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 7, 'qkv_v_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 8, 'qkv_v_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 9, 'attn_q_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 10, 'attn_q_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 11, 'attn_k_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 12, 'attn_k_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 13, 'attn_v_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 14, 'attn_v_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 15, 'ffn_up_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 16, 'ffn_up_valid');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 17, 'ffn_gate_addr');
-        set_line_name_by_dst_port(mdlName, 'w_req_bc', 18, 'ffn_gate_valid');
-        force_add_line(mdlName, 'w_req_bc/1', 'axi_weight_rd_u/1');
+        set_line_name_by_src_port(mdlName, 'rms_req_sel', 1, 'gamma_addr');
+        set_line_name_by_src_port(mdlName, 'rms_req_sel', 2, 'gamma_valid');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 1, 'qkv_q_addr');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 2, 'qkv_q_valid');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 3, 'qkv_k_addr');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 4, 'qkv_k_valid');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 5, 'qkv_v_addr');
+        set_line_name_by_src_port(mdlName, 'qkv_req_sel', 6, 'qkv_v_valid');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 1, 'attn_q_addr');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 2, 'attn_q_valid');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 3, 'attn_k_addr');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 4, 'attn_k_valid');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 5, 'attn_v_addr');
+        set_line_name_by_src_port(mdlName, 'attn_req_sel', 6, 'attn_v_valid');
+        set_line_name_by_src_port(mdlName, 'ffn_req_sel', 1, 'ffn_up_addr');
+        set_line_name_by_src_port(mdlName, 'ffn_req_sel', 2, 'ffn_up_valid');
+        set_line_name_by_src_port(mdlName, 'ffn_req_sel', 3, 'ffn_gate_addr');
+        set_line_name_by_src_port(mdlName, 'ffn_req_sel', 4, 'ffn_gate_valid');
         force_add_line(mdlName, 'w_req_bc/1', 'w_rd_req_bus/1');
+        force_add_line(mdlName, 'rms_req_sel/1', 'axi_weight_rd_u/1');
+        force_add_line(mdlName, 'rms_req_sel/2', 'axi_weight_rd_u/2');
+        force_add_line(mdlName, 'qkv_req_sel/1', 'axi_weight_rd_u/3');
+        force_add_line(mdlName, 'qkv_req_sel/2', 'axi_weight_rd_u/4');
+        force_add_line(mdlName, 'qkv_req_sel/3', 'axi_weight_rd_u/5');
+        force_add_line(mdlName, 'qkv_req_sel/4', 'axi_weight_rd_u/6');
+        force_add_line(mdlName, 'qkv_req_sel/5', 'axi_weight_rd_u/7');
+        force_add_line(mdlName, 'qkv_req_sel/6', 'axi_weight_rd_u/8');
+        force_add_line(mdlName, 'attn_req_sel/1', 'axi_weight_rd_u/9');
+        force_add_line(mdlName, 'attn_req_sel/2', 'axi_weight_rd_u/10');
+        force_add_line(mdlName, 'attn_req_sel/3', 'axi_weight_rd_u/11');
+        force_add_line(mdlName, 'attn_req_sel/4', 'axi_weight_rd_u/12');
+        force_add_line(mdlName, 'attn_req_sel/5', 'axi_weight_rd_u/13');
+        force_add_line(mdlName, 'attn_req_sel/6', 'axi_weight_rd_u/14');
+        force_add_line(mdlName, 'ffn_req_sel/1', 'axi_weight_rd_u/15');
+        force_add_line(mdlName, 'ffn_req_sel/2', 'axi_weight_rd_u/16');
+        force_add_line(mdlName, 'ffn_req_sel/3', 'axi_weight_rd_u/17');
+        force_add_line(mdlName, 'ffn_req_sel/4', 'axi_weight_rd_u/18');
+
+        safe_add_line(mdlName, 'cfg_token_pos/1', 'prefill_sched_u/1');
+        safe_add_line(mdlName, 'cfg_seq_len/1', 'prefill_sched_u/2');
+        safe_add_line(mdlName, 'mode_decode/1', 'prefill_sched_u/3');
 
         safe_add_line(mdlName, 'cfg_rope_theta_scale/1', 'rope_u/3');
         safe_add_line(mdlName, 'cfg_rope_sin_mix_scale/1', 'rope_u/4');
 
         safe_add_line(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
         safe_add_line(mdlName, 'mode_decode/1', 'kv_cache_if_u/3');
+        safe_add_line(mdlName, 'prefill_sched_u/1', 'kv_cache_if_u/4');
+        safe_add_line(mdlName, 'prefill_sched_u/2', 'kv_cache_if_u/5');
         force_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
+        force_add_line(mdlName, 'prefill_sched_u/2', 'attention_u/4');
+        force_add_line(mdlName, 'prefill_sched_u/3', 'attention_u/5');
+        force_add_line(mdlName, 'prefill_sched_u/4', 'attention_u/6');
+        force_add_line(mdlName, 'prefill_sched_u/5', 'attention_u/7');
         force_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
         force_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
         force_add_line(mdlName, 'in_residual/1', 'residual_u/2');
@@ -211,8 +253,8 @@ function build_kv_memory_stubs(mdlName, stageProfile)
         safe_add_line(mdlName, 'mode_decode/1', 'kv_addr_gen_u/3');
 
         % Write path hooks (adapted from soc_image_rotation AXI4MasterWriteController).
-          safe_add_line(mdlName, 'qkv_proj_u/1', 'axi_master_wr_u/1');
-          safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'axi_master_wr_u/2');
+                    safe_add_line(mdlName, 'kv_cache_if_u/2', 'axi_master_wr_u/1');
+                    safe_add_line(mdlName, 'kv_cache_if_u/3', 'axi_master_wr_u/2');
           safe_add_line(mdlName, 'ctrl_fsm_u/1', 'axi_master_wr_u/3');
         safe_add_line(mdlName, 'kv_addr_gen_u/3', 'axi_master_wr_u/4');
         safe_add_line(mdlName, 'kv_addr_gen_u/4', 'axi_master_wr_u/5');
@@ -264,12 +306,14 @@ function ensure_stage2_ports(mdlName)
 end
 
 function ensure_memory_subsystems(mdlName)
+    ensure_subsystem(mdlName, 'prefill_sched_u', [700, 430, 920, 520]);
     ensure_subsystem(mdlName, 'axi_master_rd_u', [980, 430, 1220, 510]);
     ensure_subsystem(mdlName, 'axi_master_wr_u', [980, 540, 1220, 620]);
     ensure_subsystem(mdlName, 'ddr_model_if_u', [980, 650, 1220, 730]);
     ensure_subsystem(mdlName, 'kv_addr_gen_u', [700, 600, 920, 680]);
     ensure_subsystem(mdlName, 'weight_addr_map_u', [700, 720, 980, 820]);
     ensure_subsystem(mdlName, 'axi_weight_rd_u', [980, 820, 1220, 900]);
+    ensure_subsystem(mdlName, 'w_req_bridge_u', [1230, 820, 1500, 900]);
 end
 
 function remove_legacy_weight_ports(mdlName)
@@ -288,6 +332,13 @@ function remove_legacy_weight_ports(mdlName)
     end
     for i = 1:numel(legacyOut)
         remove_top_block_if_exists(mdlName, legacyOut{i});
+    end
+end
+
+function remove_top_level_weight_req_merge_blocks(mdlName)
+    names = {'rms_req_sel', 'qkv_req_sel', 'attn_req_sel', 'ffn_req_sel', 'w_req_bc'};
+    for i = 1:numel(names)
+        remove_top_block_if_exists(mdlName, names{i});
     end
 end
 
@@ -636,14 +687,92 @@ function configure_kv_cache_if(subPath)
     add_block('simulink/Sources/In1', [subPath '/qkv_new'], 'Position', [20, 40, 50, 54]);
     add_block('simulink/Sources/In1', [subPath '/kv_hist'], 'Position', [20, 90, 50, 104]);
     add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 140, 50, 154]);
-    add_block('simulink/Signal Routing/Switch', [subPath '/mode_switch'], ...
-        'Threshold', '0.5', 'Position', [120, 60, 170, 140]);
-    add_block('simulink/Sinks/Out1', [subPath '/kv_to_attn'], 'Position', [260, 95, 290, 109]);
+    add_block('simulink/Sources/In1', [subPath '/kv_phase_first'], 'Position', [20, 190, 50, 204]);
+    add_block('simulink/Sources/In1', [subPath '/score_scale'], 'Position', [20, 230, 50, 244]);
+    add_block('simulink/Math Operations/Gain', [subPath '/q_stream_gain'], ...
+        'Gain', '0.6', 'Position', [90, 20, 130, 45]);
+    add_block('simulink/Math Operations/Gain', [subPath '/k_cache_gain'], ...
+        'Gain', '0.4', 'Position', [90, 65, 130, 90]);
+    add_block('simulink/Math Operations/Gain', [subPath '/v_cache_gain'], ...
+        'Gain', '1.0', 'Position', [90, 110, 130, 135]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/k_cache_sel'], ...
+        'Threshold', '0.5', 'Position', [190, 45, 240, 95]);
+    add_block('simulink/Signal Routing/Switch', [subPath '/v_cache_sel'], ...
+        'Threshold', '0.5', 'Position', [190, 105, 240, 155]);
+    add_block('simulink/Math Operations/Add', [subPath '/kv_write_pack'], ...
+        'Inputs', '++', 'Position', [280, 95, 315, 125]);
+    add_block('simulink/Math Operations/Product', [subPath '/kv_write_gate'], ...
+        'Inputs', '**', 'Position', [280, 145, 315, 175]);
+    add_block('simulink/Math Operations/Add', [subPath '/attn_compose'], ...
+        'Inputs', '+++', 'Position', [360, 60, 395, 120]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_to_attn'], 'Position', [450, 75, 480, 89]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_write_data'], 'Position', [450, 145, 480, 159]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_write_valid'], 'Position', [450, 185, 480, 199]);
 
-    safe_add_line(subPath, 'qkv_new/1', 'mode_switch/1');
-    safe_add_line(subPath, 'mode_decode/1', 'mode_switch/2');
-    safe_add_line(subPath, 'kv_hist/1', 'mode_switch/3');
-    safe_add_line(subPath, 'mode_switch/1', 'kv_to_attn/1');
+    safe_add_line(subPath, 'qkv_new/1', 'q_stream_gain/1');
+    safe_add_line(subPath, 'qkv_new/1', 'k_cache_gain/1');
+    safe_add_line(subPath, 'qkv_new/1', 'v_cache_gain/1');
+    safe_add_line(subPath, 'k_cache_gain/1', 'k_cache_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'k_cache_sel/2');
+    safe_add_line(subPath, 'kv_hist/1', 'k_cache_sel/3');
+    safe_add_line(subPath, 'v_cache_gain/1', 'v_cache_sel/1');
+    safe_add_line(subPath, 'mode_decode/1', 'v_cache_sel/2');
+    safe_add_line(subPath, 'kv_hist/1', 'v_cache_sel/3');
+    safe_add_line(subPath, 'k_cache_sel/1', 'kv_write_pack/1');
+    safe_add_line(subPath, 'v_cache_sel/1', 'kv_write_pack/2');
+    safe_add_line(subPath, 'mode_decode/1', 'kv_write_gate/1');
+    safe_add_line(subPath, 'kv_phase_first/1', 'kv_write_gate/2');
+    safe_add_line(subPath, 'q_stream_gain/1', 'attn_compose/1');
+    safe_add_line(subPath, 'k_cache_sel/1', 'attn_compose/2');
+    safe_add_line(subPath, 'score_scale/1', 'attn_compose/3');
+    safe_add_line(subPath, 'attn_compose/1', 'kv_to_attn/1');
+    safe_add_line(subPath, 'kv_write_pack/1', 'kv_write_data/1');
+    safe_add_line(subPath, 'kv_write_gate/1', 'kv_write_valid/1');
+end
+
+function configure_prefill_scheduler(subPath, cfg)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [20, 40, 50, 54]);
+    add_block('simulink/Sources/In1', [subPath '/seq_len'], 'Position', [20, 80, 50, 94]);
+    add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 120, 50, 134]);
+    add_block('simulink/Sources/Constant', [subPath '/tile_seq_const'], ...
+        'Value', num2str(cfg.tile_seq), 'Position', [90, 20, 150, 40]);
+    add_block('simulink/Sources/Constant', [subPath '/tile_k_const'], ...
+        'Value', num2str(cfg.tile_k), 'Position', [90, 45, 150, 65]);
+    add_block('simulink/Sources/Constant', [subPath '/tile_out_const'], ...
+        'Value', num2str(cfg.tile_out), 'Position', [90, 70, 150, 90]);
+    add_block('simulink/Sources/Constant', [subPath '/array_rows_const'], ...
+        'Value', num2str(cfg.array_rows), 'Position', [90, 95, 150, 115]);
+    add_block('simulink/Sources/Constant', [subPath '/array_cols_const'], ...
+        'Value', num2str(cfg.array_cols), 'Position', [90, 120, 150, 140]);
+    add_block('simulink/Sources/Constant', [subPath '/x_banks_const'], ...
+        'Value', num2str(cfg.x_bank_count), 'Position', [90, 145, 150, 165]);
+    add_block('simulink/Sources/Constant', [subPath '/psum_banks_const'], ...
+        'Value', num2str(cfg.psum_bank_count), 'Position', [90, 170, 150, 190]);
+    add_block('simulink/Sources/Constant', [subPath '/kv_banks_const'], ...
+        'Value', num2str(cfg.kv_bank_count), 'Position', [90, 195, 150, 215]);
+    add_block('simulink/Sources/Constant', [subPath '/qpkv_const'], ...
+        'Value', num2str(cfg.q_heads_per_kv), 'Position', [90, 220, 150, 240]);
+    add_block('simulink/Sources/Constant', [subPath '/kv_first_const'], ...
+        'Value', num2str(cfg.kv_phase_first), 'Position', [90, 245, 150, 265]);
+    add_block('simulink/Sources/Constant', [subPath '/score_scale_const'], ...
+        'Value', num2str(cfg.score_scale), 'Position', [90, 270, 150, 290]);
+    add_block('simulink/Math Operations/MinMax', [subPath '/active_seq_min'], ...
+        'Function', 'min', 'Inputs', '2', 'Position', [190, 55, 230, 95]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_phase_first'], 'Position', [390, 40, 420, 54]);
+    add_block('simulink/Sinks/Out1', [subPath '/score_scale'], 'Position', [390, 80, 420, 94]);
+    add_block('simulink/Sinks/Out1', [subPath '/q_heads_per_kv'], 'Position', [390, 120, 420, 134]);
+    add_block('simulink/Sinks/Out1', [subPath '/array_rows'], 'Position', [390, 160, 420, 174]);
+    add_block('simulink/Sinks/Out1', [subPath '/array_cols'], 'Position', [390, 200, 420, 214]);
+
+    safe_add_line(subPath, 'seq_len/1', 'active_seq_min/1');
+    safe_add_line(subPath, 'tile_seq_const/1', 'active_seq_min/2');
+    safe_add_line(subPath, 'kv_first_const/1', 'kv_phase_first/1');
+    safe_add_line(subPath, 'score_scale_const/1', 'score_scale/1');
+    safe_add_line(subPath, 'qpkv_const/1', 'q_heads_per_kv/1');
+    safe_add_line(subPath, 'array_rows_const/1', 'array_rows/1');
+    safe_add_line(subPath, 'array_cols_const/1', 'array_cols/1');
 end
 
 function configure_kv_addr_gen(subPath, cfg)
@@ -785,11 +914,15 @@ end
 function configure_axi_weight_rd(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 90, 50, 104], ...
-        'OutDataTypeStr', 'Bus: WeightReqBus');
-    add_or_reset_bus_selector(subPath, 'req_sel', ...
-        'signal1 (signal 1),signal2 (signal 2),signal1 (signal 3),signal2 (signal 4),signal3 (signal 5),signal4 (signal 6),signal5 (signal 7),signal6 (signal 8),signal1 (signal 9),signal2 (signal 10),signal3 (signal 11),signal4 (signal 12),signal5 (signal 13),signal6 (signal 14),signal1 (signal 15),signal2 (signal 16),signal3 (signal 17),signal4 (signal 18)', ...
-        [90, 20, 130, 330]);
+    reqNames = { ...
+        'gamma_addr', 'gamma_valid', ...
+        'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
+        'attn_q_addr', 'attn_q_valid', 'attn_k_addr', 'attn_k_valid', 'attn_v_addr', 'attn_v_valid', ...
+        'ffn_up_addr', 'ffn_up_valid', 'ffn_gate_addr', 'ffn_gate_valid'};
+    for i = 1:numel(reqNames)
+        y = 20 + 16 * (i - 1);
+        add_block('simulink/Sources/In1', [subPath '/' reqNames{i}], 'Position', [20, y, 50, y + 14]);
+    end
     add_or_reset_bus_creator(subPath, 'rsp_bc', 18, [430, 20, 470, 330], 'WeightRspBus');
     try
         set_param([subPath '/rsp_bc'], 'InputSignalNames', ...
@@ -799,7 +932,6 @@ function configure_axi_weight_rd(subPath)
     add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [430, 120, 460, 134], ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
 
-    safe_add_line(subPath, 'req_bus/1', 'req_sel/1');
     safe_add_line(subPath, 'rsp_bc/1', 'rsp_bus/1');
 
     scaleVals = {'1.0','0.6','0.4','1.0','0.6','0.4','1.0','1.4','0.9'};
@@ -822,17 +954,17 @@ function configure_axi_weight_rd(subPath)
         add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/data_u8_' num2str(i)], ...
             'OutDataTypeStr', 'uint8', 'Position', [400, baseY + 10, 430, baseY + 30]);
 
-        reqAddrPort = 2 * i - 1;
-        reqValPort = 2 * i;
+        reqAddrName = reqNames{2 * i - 1};
+        reqValName = reqNames{2 * i};
         rspDataPort = 2 * i - 1;
         rspValPort = 2 * i;
 
-        safe_add_line(subPath, ['req_sel/' num2str(reqValPort)], ['ar_hs_' num2str(i) '/1']);
+        safe_add_line(subPath, [reqValName '/1'], ['ar_hs_' num2str(i) '/1']);
         safe_add_line(subPath, ['arready_' num2str(i) '/1'], ['ar_hs_' num2str(i) '/2']);
         safe_add_line(subPath, ['ar_hs_' num2str(i) '/1'], ['rdv_d1_' num2str(i) '/1']);
         safe_add_line(subPath, ['rdv_d1_' num2str(i) '/1'], ['rdv_d2_' num2str(i) '/1']);
 
-        safe_add_line(subPath, ['req_sel/' num2str(reqAddrPort)], ['addr_d1_' num2str(i) '/1']);
+        safe_add_line(subPath, [reqAddrName '/1'], ['addr_d1_' num2str(i) '/1']);
         safe_add_line(subPath, ['addr_d1_' num2str(i) '/1'], ['addr_d2_' num2str(i) '/1']);
         safe_add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_gain_' num2str(i) '/1']);
         safe_add_line(subPath, ['data_gain_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1']);
@@ -840,6 +972,51 @@ function configure_axi_weight_rd(subPath)
         safe_add_line(subPath, ['data_u8_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)]);
         safe_add_line(subPath, ['rdv_d2_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValPort)]);
     end
+end
+
+function configure_weight_req_bridge(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/rms_req_bus'], 'Position', [20, 35, 50, 49], ...
+        'OutDataTypeStr', 'Bus: WeightReqRmsBus');
+    add_block('simulink/Sources/In1', [subPath '/qkv_req_bus'], 'Position', [20, 85, 50, 99], ...
+        'OutDataTypeStr', 'Bus: WeightReqQkvBus');
+    add_block('simulink/Sources/In1', [subPath '/attn_req_bus'], 'Position', [20, 135, 50, 149], ...
+        'OutDataTypeStr', 'Bus: WeightReqAttnBus');
+    add_block('simulink/Sources/In1', [subPath '/ffn_req_bus'], 'Position', [20, 185, 50, 199], ...
+        'OutDataTypeStr', 'Bus: WeightReqFfnBus');
+    add_or_reset_bus_selector(subPath, 'rms_req_sel', 'gamma_addr,gamma_valid', [90, 20, 140, 70]);
+    add_or_reset_bus_selector(subPath, 'qkv_req_sel', ...
+        'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', [90, 70, 140, 170]);
+    add_or_reset_bus_selector(subPath, 'attn_req_sel', ...
+        'attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid', [90, 170, 140, 270]);
+    add_or_reset_bus_selector(subPath, 'ffn_req_sel', ...
+        'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid', [90, 270, 140, 340]);
+    add_or_reset_bus_creator(subPath, 'w_req_bc', 18, [190, 35, 230, 335], 'WeightReqBus');
+    try
+        set_param([subPath '/w_req_bc'], 'InputSignalNames', ...
+            'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/req_bus'], 'Position', [280, 180, 310, 194], ...
+        'OutDataTypeStr', 'Bus: WeightReqBus');
+
+    safe_add_line(subPath, 'rms_req_bus/1', 'rms_req_sel/1');
+    safe_add_line(subPath, 'qkv_req_bus/1', 'qkv_req_sel/1');
+    safe_add_line(subPath, 'attn_req_bus/1', 'attn_req_sel/1');
+    safe_add_line(subPath, 'ffn_req_bus/1', 'ffn_req_sel/1');
+
+    for idx = 1:2
+        safe_add_line(subPath, ['rms_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx)]);
+    end
+    for idx = 1:6
+        safe_add_line(subPath, ['qkv_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 2)]);
+        safe_add_line(subPath, ['attn_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 8)]);
+    end
+    for idx = 1:4
+        safe_add_line(subPath, ['ffn_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 14)]);
+    end
+    safe_add_line(subPath, 'w_req_bc/1', 'req_bus/1');
 end
 
 function add_or_reset_bus_creator(sys, name, n, pos, busObj)
@@ -896,6 +1073,13 @@ function ensure_weight_bus_objects()
         'qkv_q_data','qkv_q_valid','qkv_k_data','qkv_k_valid','qkv_v_data','qkv_v_valid', ...
         'attn_q_data','attn_q_valid','attn_k_data','attn_k_valid','attn_v_data','attn_v_valid', ...
         'ffn_up_data','ffn_up_valid','ffn_gate_data','ffn_gate_valid'});
+
+    define_bus('QkvStreamBus', {'q_stream','k_stream','v_stream','q_valid','kv_valid','group_idx'});
+    define_bus('AttentionFlowBus', {'q_stream','k_cache','v_cache','group_idx','score_scale'});
+    define_bus('PrefillScheduleBus', {
+        'array_rows','array_cols','tile_seq','tile_k','tile_out', ...
+        'x_bank_count','psum_bank_count','kv_bank_count','q_heads_per_kv', ...
+        'active_seq_len','decode_mode','kv_phase_first','score_scale'});
 end
 
 function define_bus(name, fieldNames)
@@ -989,13 +1173,23 @@ function configure_qkv_proj(subPath)
         'Inputs', '++', 'Position', [500, 45, 535, 85]);
     add_block('simulink/Math Operations/Add', [subPath '/qkv_sum'], ...
         'Inputs', '++', 'Position', [570, 60, 605, 100]);
+    add_block('simulink/Sources/Constant', [subPath '/group_idx_const'], ...
+        'Value', '0', 'Position', [500, 120, 540, 140]);
+    add_or_reset_bus_creator(subPath, 'qkv_stream_bc', 6, [560, 245, 600, 355], 'QkvStreamBus');
+    try
+        set_param([subPath '/qkv_stream_bc'], 'InputSignalNames', ...
+            'q_stream,k_stream,v_stream,q_valid,kv_valid,group_idx');
+    catch
+    end
     add_or_reset_bus_creator(subPath, 'req_bc', 6, [560, 130, 600, 240], 'WeightReqQkvBus');
     try
         set_param([subPath '/req_bc'], 'InputSignalNames', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid');
     catch
     end
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [650, 75, 680, 89]);
-    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [650, 185, 680, 199], ...
+    add_block('simulink/Sinks/Out1', [subPath '/qkv_bus'], 'Position', [650, 145, 680, 159], ...
+        'OutDataTypeStr', 'Bus: QkvStreamBus');
+    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [650, 225, 680, 239], ...
         'OutDataTypeStr', 'Bus: WeightReqQkvBus');
 
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
@@ -1013,6 +1207,13 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, 'qk_sum/1', 'qkv_sum/1');
     safe_add_line(subPath, vOut, 'qkv_sum/2');
     safe_add_line(subPath, 'qkv_sum/1', 'y_out/1');
+    safe_add_line(subPath, qOut, 'qkv_stream_bc/1');
+    safe_add_line(subPath, kOut, 'qkv_stream_bc/2');
+    safe_add_line(subPath, vOut, 'qkv_stream_bc/3');
+    safe_add_line(subPath, qReqValid, 'qkv_stream_bc/4');
+    safe_add_line(subPath, kReqValid, 'qkv_stream_bc/5');
+    safe_add_line(subPath, 'group_idx_const/1', 'qkv_stream_bc/6');
+    safe_add_line(subPath, 'qkv_stream_bc/1', 'qkv_bus/1');
 
     safe_add_line(subPath, qReqAddr, 'req_bc/1');
     safe_add_line(subPath, qReqValid, 'req_bc/2');
@@ -1031,15 +1232,23 @@ function configure_attention(subPath)
         'OutDataTypeStr', 'Bus: WeightRspBus');
     add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 45, 60, 59], ...
         'OutDataTypeStr', 'Bus: WeightAddrAttnBus');
+    add_block('simulink/Sources/In1', [subPath '/score_scale'], 'Position', [30, 225, 60, 239]);
+    add_block('simulink/Sources/In1', [subPath '/q_heads_per_kv'], 'Position', [30, 255, 60, 269]);
+    add_block('simulink/Sources/In1', [subPath '/array_rows'], 'Position', [30, 285, 60, 299]);
+    add_block('simulink/Sources/In1', [subPath '/array_cols'], 'Position', [30, 315, 60, 329]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', ...
         'signal9,signal10,signal11,signal12,signal13,signal14', [90, 5, 130, 120]);
     add_or_reset_bus_selector(subPath, 'addr_sel', 'attn_q_addr,attn_k_addr,attn_v_addr', [90, 130, 130, 190]);
+    add_block('simulink/Math Operations/Gain', [subPath '/q_head_stream_gain'], ...
+        'Gain', '1', 'Position', [180, 165, 220, 190]);
     add_block('simulink/Math Operations/Product', [subPath '/score_mul'], ...
         'Inputs', '**', 'Position', [210, 45, 245, 85]);
     add_block('simulink/Math Operations/Abs', [subPath '/score_abs'], ...
         'Position', [280, 45, 315, 75]);
-    add_block('simulink/Sources/Constant', [subPath '/one_const'], ...
-        'Value', '1', 'Position', [280, 95, 320, 115]);
+    add_block('simulink/Math Operations/Add', [subPath '/array_dim_sum'], ...
+        'Inputs', '++', 'Position', [180, 295, 215, 325]);
+    add_block('simulink/Math Operations/Add', [subPath '/head_group_bias'], ...
+        'Inputs', '++', 'Position', [250, 250, 285, 280]);
     add_block('simulink/Math Operations/Add', [subPath '/score_den'], ...
         'Inputs', '++', 'Position', [350, 55, 385, 95]);
     add_block('simulink/Math Operations/Divide', [subPath '/score_norm'], ...
@@ -1058,7 +1267,13 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
-    [qOut, qReqAddr, qReqValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
+    safe_add_line(subPath, 'x_in/1', 'q_head_stream_gain/1');
+    safe_add_line(subPath, 'array_rows/1', 'array_dim_sum/1');
+    safe_add_line(subPath, 'array_cols/1', 'array_dim_sum/2');
+    safe_add_line(subPath, 'score_scale/1', 'head_group_bias/1');
+    safe_add_line(subPath, 'q_heads_per_kv/1', 'head_group_bias/2');
+
+    [qOut, qReqAddr, qReqValid] = add_streamed_weight_mul(subPath, 'q', 'q_head_stream_gain/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, '0.6');
     [kOut, kReqAddr, kReqValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95, '0.4');
@@ -1069,7 +1284,7 @@ function configure_attention(subPath)
     safe_add_line(subPath, kOut, 'score_mul/2');
     safe_add_line(subPath, 'score_mul/1', 'score_abs/1');
     safe_add_line(subPath, 'score_abs/1', 'score_den/1');
-    safe_add_line(subPath, 'one_const/1', 'score_den/2');
+    safe_add_line(subPath, 'score_scale/1', 'score_den/2');
     safe_add_line(subPath, 'score_mul/1', 'score_norm/1');
     safe_add_line(subPath, 'score_den/1', 'score_norm/2');
     safe_add_line(subPath, 'score_norm/1', 'value_weight/1');
@@ -1329,6 +1544,51 @@ function set_line_name_by_dst_port(sys, dstBlockName, dstPort, lineName)
             end
         end
     catch
+    end
+end
+
+function set_line_name_by_src_port(sys, srcBlockName, srcPort, lineName)
+    try
+        ph = get_param([sys '/' srcBlockName], 'PortHandles');
+        if srcPort > numel(ph.Outport)
+            return;
+        end
+        ln = get_param(ph.Outport(srcPort), 'Line');
+        if ln ~= -1
+            set_param(ln, 'Name', lineName);
+            try
+                set_param(ln, 'SignalPropagation', 'on');
+            catch
+            end
+        end
+    catch
+    end
+end
+
+function arrange_model_systems(mdlName, stageProfile)
+    try
+        Simulink.BlockDiagram.arrangeSystem(mdlName);
+    catch
+    end
+
+    targets = { ...
+        [mdlName '/rmsnorm_u'], [mdlName '/qkv_proj_u'], [mdlName '/kv_cache_if_u'], ...
+        [mdlName '/attention_u'], [mdlName '/ffn_swiglu_u'], [mdlName '/rope_u'], ...
+        [mdlName '/residual_u']};
+
+    if stageProfile == "stage2_memory_ready"
+        targets = [targets, { ...
+            [mdlName '/prefill_sched_u'], [mdlName '/w_req_bridge_u'], ...
+            [mdlName '/axi_weight_rd_u'], [mdlName '/weight_addr_map_u'], ...
+            [mdlName '/axi_master_rd_u'], [mdlName '/axi_master_wr_u'], ...
+            [mdlName '/kv_addr_gen_u'], [mdlName '/ddr_model_if_u']}];
+    end
+
+    for i = 1:numel(targets)
+        try
+            Simulink.BlockDiagram.arrangeSystem(targets{i});
+        catch
+        end
     end
 end
 
