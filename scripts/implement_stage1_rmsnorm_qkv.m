@@ -23,6 +23,10 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
 
     configure_rmsnorm([mdlName '/rmsnorm_u']);
     configure_qkv_proj([mdlName '/qkv_proj_u']);
+    configure_attention([mdlName '/attention_u']);
+    configure_ffn_swiglu([mdlName '/ffn_swiglu_u']);
+    configure_residual([mdlName '/residual_u']);
+    configure_rope([mdlName '/rope_u']);
 
     if stageProfile == "stage2_memory_ready"
         addpath(fullfile(rootDir, 'simulink', 'fsm'));
@@ -604,6 +608,70 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, 'q_gain/1', 'mix_sum/1');
     safe_add_line(subPath, 'k_gain/1', 'mix_sum/2');
     safe_add_line(subPath, 'mix_sum/1', 'y_out/1');
+end
+
+function configure_attention(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Math Operations/Gain', [subPath '/attn_scale'], ...
+        'Gain', '0.9', 'Position', [110, 40, 170, 65]);
+    add_block('simulink/Math Operations/Bias', [subPath '/attn_bias'], ...
+        'Bias', '0.01', 'Position', [210, 70, 260, 100]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [320, 75, 350, 89]);
+
+    safe_add_line(subPath, 'x_in/1', 'attn_scale/1');
+    safe_add_line(subPath, 'attn_scale/1', 'attn_bias/1');
+    safe_add_line(subPath, 'attn_bias/1', 'y_out/1');
+end
+
+function configure_ffn_swiglu(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Math Operations/Gain', [subPath '/ffn_scale'], ...
+        'Gain', '1.1', 'Position', [110, 35, 170, 60]);
+    add_block('simulink/Math Operations/MinMax', [subPath '/relu_like'], ...
+        'Function', 'max', 'Inputs', '2', 'Position', [210, 60, 250, 100]);
+    add_block('simulink/Sources/Constant', [subPath '/zero_const'], ...
+        'Value', '0', 'Position', [120, 110, 160, 130]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [320, 75, 350, 89]);
+
+    safe_add_line(subPath, 'x_in/1', 'ffn_scale/1');
+    safe_add_line(subPath, 'ffn_scale/1', 'relu_like/1');
+    safe_add_line(subPath, 'zero_const/1', 'relu_like/2');
+    safe_add_line(subPath, 'relu_like/1', 'y_out/1');
+end
+
+function configure_residual(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/res_delay'], ...
+        'InitialCondition', '0', 'Position', [110, 75, 150, 95]);
+    add_block('simulink/Math Operations/Sum', [subPath '/res_sum'], ...
+        'Inputs', '++', 'Position', [200, 65, 230, 105]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [300, 75, 330, 89]);
+
+    safe_add_line(subPath, 'x_in/1', 'res_delay/1');
+    safe_add_line(subPath, 'x_in/1', 'res_sum/1');
+    safe_add_line(subPath, 'res_delay/1', 'res_sum/2');
+    safe_add_line(subPath, 'res_sum/1', 'y_out/1');
+end
+
+function configure_rope(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Math Operations/Gain', [subPath '/rope_scale'], ...
+        'Gain', '1.0', 'Position', [110, 40, 170, 65]);
+    add_block('simulink/Math Operations/Bias', [subPath '/rope_phase_bias'], ...
+        'Bias', '0.001', 'Position', [210, 70, 270, 100]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [330, 75, 360, 89]);
+
+    safe_add_line(subPath, 'x_in/1', 'rope_scale/1');
+    safe_add_line(subPath, 'rope_scale/1', 'rope_phase_bias/1');
+    safe_add_line(subPath, 'rope_phase_bias/1', 'y_out/1');
 end
 
 function clear_subsystem_contents(subPath)
