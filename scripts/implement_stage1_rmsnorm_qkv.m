@@ -9,6 +9,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     end
 
     stageProfile = lower(string(getFieldOr(options, 'StageProfile', 'stage1')));
+    useExternalWeightRsp = logical(getFieldOr(options, 'UseExternalWeightRsp', false));
     prefillCfg = resolve_prefill_schedule_config(rootDir, options);
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
@@ -34,7 +35,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         addpath(fullfile(rootDir, 'simulink', 'fsm'));
         kvCfg = resolve_kv_addr_config(options);
         ensure_weight_bus_objects();
-        ensure_stage2_ports(mdlName);
+        ensure_stage2_ports(mdlName, useExternalWeightRsp);
         remove_top_level_weight_req_merge_blocks(mdlName);
         remove_unused_top_level_blocks(mdlName);
         ensure_memory_subsystems(mdlName);
@@ -49,7 +50,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         configure_axi_weight_rd([mdlName '/axi_weight_rd_u']);
     end
 
-    build_prefill_path(mdlName, stageProfile);
+    build_prefill_path(mdlName, stageProfile, useExternalWeightRsp);
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
     cleanup_disconnected_lines(mdlName);
@@ -92,7 +93,7 @@ function cfg = resolve_prefill_schedule_config(rootDir, options)
     cfg = prefill_attention_schedule_32x32();
 end
 
-function build_prefill_path(mdlName, stageProfile)
+function build_prefill_path(mdlName, stageProfile, useExternalWeightRsp)
     safe_add_line(mdlName, 'in_hidden/1', 'rope_u/1');
     safe_add_line(mdlName, 'cfg_token_pos/1', 'rope_u/2');
     force_add_line(mdlName, 'rope_u/1', 'rmsnorm_u/1');
@@ -125,11 +126,18 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'attn_addr_bc/1', 'attention_u/3');
         force_add_line(mdlName, 'ffn_addr_bc/1', 'ffn_swiglu_u/3');
 
-        % Shared response bus distributed to each module; each module selects its own fields internally.
-        force_add_line(mdlName, 'axi_weight_rd_u/1', 'rmsnorm_u/3');
-        force_add_line(mdlName, 'axi_weight_rd_u/1', 'qkv_proj_u/2');
-        force_add_line(mdlName, 'axi_weight_rd_u/1', 'attention_u/2');
-        force_add_line(mdlName, 'axi_weight_rd_u/1', 'ffn_swiglu_u/2');
+        % Shared response bus distributed to each module; wrapper mode can source it externally.
+        if useExternalWeightRsp
+            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'rmsnorm_u/3');
+            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'qkv_proj_u/2');
+            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'attention_u/2');
+            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'ffn_swiglu_u/2');
+        else
+            force_add_line(mdlName, 'axi_weight_rd_u/1', 'rmsnorm_u/3');
+            force_add_line(mdlName, 'axi_weight_rd_u/1', 'qkv_proj_u/2');
+            force_add_line(mdlName, 'axi_weight_rd_u/1', 'attention_u/2');
+            force_add_line(mdlName, 'axi_weight_rd_u/1', 'ffn_swiglu_u/2');
+        end
 
         add_or_reset_bus_selector(mdlName, 'rms_req_sel', 'gamma_addr,gamma_valid', [1240, 700, 1280, 750]);
         add_or_reset_bus_selector(mdlName, 'qkv_req_sel', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', [1240, 760, 1280, 860]);
@@ -298,7 +306,7 @@ function build_kv_memory_stubs(mdlName, stageProfile)
     end
 end
 
-function ensure_stage2_ports(mdlName)
+function ensure_stage2_ports(mdlName, useExternalWeightRsp)
     remove_legacy_weight_ports(mdlName);
 
     ensure_inport(mdlName, 'stop_req', [20, 520, 50, 534]);
@@ -309,6 +317,11 @@ function ensure_stage2_ports(mdlName)
     ensure_inport(mdlName, 'cfg_weight_page_stride', [20, 980, 50, 994]);
     ensure_inport(mdlName, 'cfg_rope_theta_scale', [20, 1020, 50, 1034]);
     ensure_inport(mdlName, 'cfg_rope_sin_mix_scale', [20, 1060, 50, 1074]);
+    if useExternalWeightRsp
+        ensure_inport(mdlName, 'w_rd_rsp_bus', [20, 1100, 50, 1114]);
+    else
+        remove_top_block_if_exists(mdlName, 'w_rd_rsp_bus');
+    end
     set_root_inport_type(mdlName, 'start', 'boolean');
     set_root_inport_type(mdlName, 'in_valid', 'boolean');
     set_root_inport_type(mdlName, 'out_ready', 'boolean');
@@ -326,6 +339,13 @@ function ensure_stage2_ports(mdlName)
     set_root_inport_type(mdlName, 'cfg_weight_num_heads', 'fixdt(1,17,15)');
     set_root_inport_type(mdlName, 'cfg_weight_page_base', 'fixdt(1,17,15)');
     set_root_inport_type(mdlName, 'cfg_weight_page_stride', 'fixdt(1,17,15)');
+    if useExternalWeightRsp
+        set_root_inport_type(mdlName, 'w_rd_rsp_bus', 'Bus: WeightRspBus');
+        try
+            set_param([mdlName '/w_rd_rsp_bus'], 'SampleTime', '-1');
+        catch
+        end
+    end
 
     ensure_outport(mdlName, 'busy', [1650, 520, 1680, 534]);
     ensure_outport(mdlName, 'irq', [1650, 560, 1680, 574]);

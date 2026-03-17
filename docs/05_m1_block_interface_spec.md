@@ -74,6 +74,14 @@
 - `cfg_token_pos`：输入，当前 token 位置（用于 RoPE）
 - `cfg_eps`：输入，RMSNorm epsilon
 
+### 3.5.1 参数读回事务端口（Stage2 wrapper 联调）
+- `w_rd_req_bus`：输出，参数读请求聚合总线，覆盖 RMSNorm/QKV/Attention/FFN 的地址与 valid 信号。
+- `w_rd_rsp_bus`：输入，参数读响应聚合总线；在 wrapper 联调模式下由外层 DDR/weight responder 回注到 DUT。
+
+说明：
+- `w_rd_rsp_bus` 当前用于 stage2 wrapper 联调模式，目标是让第一层 block 的参数读取路径从“内部 stub”逐步过渡到“外部 DDR 环境返回”。
+- 非 wrapper 场景可继续使用内部 weight responder 语义，不要求所有验证入口立刻切换到外部参数内存。
+
 ## 4. 时序协议
 - 采用 `valid/ready` 握手。
 - 当 `in_valid=1 && in_ready=1` 时采样输入。

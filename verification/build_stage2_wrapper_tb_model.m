@@ -20,12 +20,24 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     addpath(fullfile(rootDir, 'simulink', 'fsm'));
     ensure_weight_bus_objects_local();
     if buildDutModel
-        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
+        implement_stage1_rmsnorm_qkv(rootDir, struct( ...
+            'StageProfile', 'stage2_memory_ready', ...
+            'KvAddressConfig', kvCfg, ...
+            'UseExternalWeightRsp', true));
     end
 
     dutPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(dutPath);
     [~, dutName] = fileparts(dutPath);
+    if ~has_root_inport(dutName, 'w_rd_rsp_bus')
+        close_system(dutName, 0);
+        implement_stage1_rmsnorm_qkv(rootDir, struct( ...
+            'StageProfile', 'stage2_memory_ready', ...
+            'KvAddressConfig', kvCfg, ...
+            'UseExternalWeightRsp', true));
+        load_system(dutPath);
+        [~, dutName] = fileparts(dutPath);
+    end
     set_param(dutName, 'SimulationCommand', 'update');
 
     if persistModel
@@ -58,6 +70,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     add_block('simulink/Ports & Subsystems/Model', [tbName '/dut'], ...
         'ModelName', dutName, 'Position', [500, 180, 760, 520]);
     configure_soc_style_ddr_ref([tbName '/ddr_ref_u']);
+    configure_weight_rsp_ref([tbName '/weight_ref_u']);
 
     build_typed_sources(tbName, dutName, inports);
     connect_dut_inputs(tbName, inports);
@@ -106,8 +119,8 @@ end
 
 function connect_dut_inputs(tbName, inports)
     ddrInMap = containers.Map( ...
-        {'kv_cache_rd_data', 'kv_cache_rd_valid', 'kv_mem_rd_ready', 'kv_mem_wr_ready'}, ...
-        {'ddr_ref_u/3', 'ddr_ref_u/4', 'ddr_ref_u/1', 'ddr_ref_u/2'});
+        {'kv_cache_rd_data', 'kv_cache_rd_valid', 'kv_mem_rd_ready', 'kv_mem_wr_ready', 'w_rd_rsp_bus'}, ...
+        {'ddr_ref_u/3', 'ddr_ref_u/4', 'ddr_ref_u/1', 'ddr_ref_u/2', 'weight_ref_u/1'});
 
     for i = 1:numel(inports)
         name = char(inports(i).name);
@@ -157,7 +170,19 @@ function connect_dut_outputs(tbName, outports)
     add_line(tbName, 'ddr_ref_u/3', 'tb_rd_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'ddr_ref_u/4', 'tb_rd_rsp_valid/1', 'autorouting', 'on');
 
+    add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_sel'], ...
+        'OutputSignals', 'attn_q_valid,attn_k_valid,attn_v_valid', ...
+        'Position', [820, 655, 870, 735]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_rsp_valid'], 'Position', [980, 320, 1010, 334]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_rsp_valid'], 'Position', [980, 360, 1010, 374]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_rsp_valid'], 'Position', [980, 400, 1010, 414]);
+    add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_sel/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_sel/1', 'tb_attn_q_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_sel/2', 'tb_attn_k_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_sel/3', 'tb_attn_v_rsp_valid/1', 'autorouting', 'on');
+
     if ~isempty(wReqSrc)
+        add_line(tbName, wReqSrc, 'weight_ref_u/1', 'autorouting', 'on');
         add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_sel'], ...
             'OutputSignals', 'attn_q_valid,attn_k_valid,attn_v_valid', ...
             'Position', [820, 560, 870, 640]);
@@ -205,6 +230,75 @@ function configure_soc_style_ddr_ref(subPath)
     add_line(subPath, 'wr_data/1', 'Output Write Memory/4', 'autorouting', 'on');
     add_line(subPath, 'wr_en/1', 'Output Write Memory/5', 'autorouting', 'on');
     add_line(subPath, 'Output Write Memory/1', 'wr_ready/1', 'autorouting', 'on');
+end
+
+function configure_weight_rsp_ref(subPath)
+    add_block('simulink/Ports & Subsystems/Subsystem', subPath, 'Position', [780, 500, 930, 690]);
+    Simulink.SubSystem.deleteContents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 75, 50, 89], ...
+        'OutDataTypeStr', 'Bus: WeightReqBus');
+    add_block('simulink/Signal Routing/Bus Selector', [subPath '/req_sel'], 'Position', [95, 25, 145, 190]);
+    set_param([subPath '/req_sel'], 'OutputSignals', ...
+        'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
+    add_block('simulink/Signal Routing/Bus Creator', [subPath '/rsp_bc'], ...
+        'Position', [505, 25, 545, 295], 'Inputs', '18');
+    set_param([subPath '/rsp_bc'], 'UseBusObject', 'on', 'BusObject', 'WeightRspBus');
+    try
+        set_param([subPath '/rsp_bc'], 'InputSignalNames', ...
+            'gamma_data,gamma_valid,qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid,attn_q_data,attn_q_valid,attn_k_data,attn_k_valid,attn_v_data,attn_v_valid,ffn_up_data,ffn_up_valid,ffn_gate_data,ffn_gate_valid');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [585, 145, 615, 159], ...
+        'OutDataTypeStr', 'Bus: WeightRspBus');
+    add_line(subPath, 'req_bus/1', 'req_sel/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_bc/1', 'rsp_bus/1', 'autorouting', 'on');
+
+    scaleVals = {'1.0','0.6','0.4','1.0','0.6','0.4','1.0','1.4','0.9'};
+    reqNames = { ...
+        'gamma_addr', 'gamma_valid', ...
+        'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
+        'attn_q_addr', 'attn_q_valid', 'attn_k_addr', 'attn_k_valid', 'attn_v_addr', 'attn_v_valid', ...
+        'ffn_up_addr', 'ffn_up_valid', 'ffn_gate_addr', 'ffn_gate_valid'};
+    for i = 1:9
+        baseY = 25 + 30 * (i - 1);
+        add_block('simulink/Sources/Constant', [subPath '/ready_' num2str(i)], ...
+            'Value', '1', 'Position', [170, baseY, 200, baseY + 18]);
+        add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/req_hs_' num2str(i)], ...
+            'Operator', 'AND', 'Position', [220, baseY, 250, baseY + 18]);
+        add_block('simulink/Discrete/Unit Delay', [subPath '/val_d1_' num2str(i)], ...
+            'InitialCondition', '0', 'Position', [270, baseY, 300, baseY + 18]);
+        add_block('simulink/Discrete/Unit Delay', [subPath '/val_d2_' num2str(i)], ...
+            'InitialCondition', '0', 'Position', [320, baseY, 350, baseY + 18]);
+        add_block('simulink/Discrete/Unit Delay', [subPath '/addr_d1_' num2str(i)], ...
+            'InitialCondition', '0', 'Position', [270, baseY + 12, 300, baseY + 30]);
+        add_block('simulink/Discrete/Unit Delay', [subPath '/addr_d2_' num2str(i)], ...
+            'InitialCondition', '0', 'Position', [320, baseY + 12, 350, baseY + 30]);
+        add_block('simulink/Math Operations/Gain', [subPath '/data_gain_' num2str(i)], ...
+            'Gain', scaleVals{i}, 'Position', [380, baseY + 8, 420, baseY + 30]);
+        add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/data_u8_' num2str(i)], ...
+            'OutDataTypeStr', 'uint8', 'Position', [445, baseY + 8, 475, baseY + 30]);
+
+        reqAddrPort = 2 * i - 1;
+        reqValidPort = 2 * i;
+        rspDataPort = 2 * i - 1;
+        rspValidPort = 2 * i;
+        reqAddrName = reqNames{reqAddrPort};
+        reqValidName = reqNames{reqValidPort};
+
+        add_line(subPath, ['req_sel/' num2str(reqAddrPort)], ['addr_d1_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['req_sel/' num2str(reqValidPort)], ['req_hs_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['ready_' num2str(i) '/1'], ['req_hs_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, ['req_hs_' num2str(i) '/1'], ['val_d1_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['val_d1_' num2str(i) '/1'], ['val_d2_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['addr_d1_' num2str(i) '/1'], ['addr_d2_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_gain_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['data_gain_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['data_u8_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)], 'autorouting', 'on');
+        add_line(subPath, ['val_d2_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValidPort)], 'autorouting', 'on');
+        set_line_name_by_dst_port(subPath, 'rsp_bc', rspDataPort, strrep(reqAddrName, '_addr', '_data'));
+        set_line_name_by_dst_port(subPath, 'rsp_bc', rspValidPort, reqValidName);
+    end
 end
 
 function configure_input_read_memory(subPath)
@@ -579,6 +673,10 @@ function set_line_name_by_dst_port(sys, dstBlockName, dstPort, lineName)
         end
     catch
     end
+end
+
+function yes = has_root_inport(mdlName, name)
+    yes = ~isempty(find_system(mdlName, 'SearchDepth', 1, 'BlockType', 'Inport', 'Name', name));
 end
 
 function out = getFieldOr(s, name, defaultValue)
