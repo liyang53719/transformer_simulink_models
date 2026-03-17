@@ -2,7 +2,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 %RUN_STAGE2_SMOKE_SUITE_FAST Fast stage2 smoke suite with model-build reuse.
 %   This suite accelerates local iteration by avoiding repeated Simulink rebuilds
 %   across smoke checks. It runs:
-%   1) default KvAddressConfig: decode + wrapper TB + attention pipeline + axi rd functional + axi wr functional
+%   1) default KvAddressConfig: decode + wrapper TB + KV banking + attention pipeline + axi rd functional + axi wr functional
 %   2) non-default KvAddressConfig: decode internal smoke for parameter coverage
 
     if nargin < 1 || strlength(string(rootDir)) == 0
@@ -22,6 +22,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rPrefillAttention = run_stage2_prefill_attention_functional_smoke(rootDir, struct('BuildModel', false));
     rWrapperTb = run_stage2_wrapper_tb_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
+    rKvBanking = run_stage2_kv_banking_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAttentionPipe = run_stage2_attention_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAttentionDdr = run_stage2_attention_ddr_integration_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
@@ -36,13 +37,15 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_kv_boundary = rKvBoundary;
     summary.default_prefill_attention = rPrefillAttention;
     summary.default_wrapper_tb = rWrapperTb;
+    summary.default_kv_banking = rKvBanking;
     summary.default_attention_pipeline = rAttentionPipe;
     summary.default_attention_ddr = rAttentionDdr;
     summary.default_axi_rd = rAxiRd;
     summary.default_axi_wr = rAxiWr;
     summary.variant_decode = rDecodeVariant;
     summary.pass = rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
-        rPrefillAttention.pass && rWrapperTb.pass && rAttentionPipe.pass && ...
+        rPrefillAttention.pass && rWrapperTb.pass && rKvBanking.pass && ...
+        rAttentionPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && ...
         rAxiWr.pass && rDecodeVariant.pass;
 

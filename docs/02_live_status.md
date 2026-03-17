@@ -21,7 +21,10 @@
 - 新增 `run_stage2_attention_pipeline_smoke`，直接对 `attention_u` 内部关键线启用 signal logging，验证 `qk_pair_valid -> softmax_valid -> scorev_input_valid` 的 staged valid 传播顺序和 1-cycle pipeline delay。
 - `run_stage2_smoke_suite_fast` 已纳入新的 attention pipeline smoke，attention 主线现在不仅检查请求/响应和最终输出，也检查内部阶段推进是否成立。
 - 验证通过：`run_stage2_attention_pipeline_smoke`、`run_stage2_smoke_suite_fast`。
-- 下一步：继续把 attention 内部可观测点从 valid 链扩展到更接近真实 tile/page/bank 语义，并推进 wrapper 外部参数响应向真实页布局逼近。
+- 新增 `run_stage2_kv_banking_pipeline_smoke`，直接记录 `kv_cache_if_u` 内部 bank 地址、bank 选择和写使能相关信号，并验证它们与 `tile_seq/active_seq_len/tile_k/tile_out/x_bank_count/kv_bank_count/kv_phase_first` 的公式关系。
+- `run_stage2_smoke_suite_fast` 已继续纳入 KV banking pipeline smoke，attention 主线和 KV banking 主线现在都具备内部语义级回归，而不仅是边界活动回归。
+- 验证通过：`run_stage2_kv_banking_pipeline_smoke`、`run_stage2_smoke_suite_fast`、`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
+- 下一步：继续推进 wrapper 外部参数响应向更真实的页布局和模块分段映射逼近，而不是停留在当前 cfg-driven tag 级别。
 
 ### 2026-03-17
 - wrapper 联调路径新增 attention+DDR 集成 smoke，已纳入 fast suite。
