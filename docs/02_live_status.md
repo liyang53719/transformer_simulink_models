@@ -24,6 +24,9 @@
 - `weight_ref_u` 进一步从简单缩放 stub 推进为“按请求地址返回带页签名的数据”，attention 联调 smoke 也开始检查外部响应数据非零且彼此可区分。
 - attention 联调 smoke 进一步收紧为：直接检查 attention 请求地址与外部响应数据之间的精确映射关系，而不是只看 valid/非零活动。
 - `cfg_weight_num_heads` / `cfg_weight_page_base` / `cfg_weight_page_stride` 根类型改为整数定点，避免 wrapper 配置真实分页参数时发生溢出。
+- `weight_ref_u` 的地址到数据映射已改成由 `cfg_weight_rsp_tag_base/tag_stride` 驱动，attention 联调 smoke 也同步改为按 cfg 推导期望响应标签，不再依赖固定页签名字面量。
+- `attention_u` 内部进一步接入 staged valid gating，并让 `array_rows/array_cols/tile_k/tile_out` 等调度参数真正参与 score、softmax 和 score·V 阶段计算。
+- 新增 Catapult MATLAB/Simulink HLS 调研文档：`docs/10_catapult_matlab_simulink_hls_skill.md`，结论是当前主线无需推翻，但后续应继续强化 cfg 化、memory contract 显式化与可迁移 HLS kernel 边界。
 - 验证通过：`run_stage2_wrapper_tb_smoke`、`run_stage2_attention_ddr_integration_smoke`、`run_stage2_smoke_suite_fast`。
 - 验证通过：`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
 - 下一步：继续推进 attention/weight path 的真实数据流细节，逐步减少内部 weight stub 依赖，并让更多参数返回语义贴近真实页布局。

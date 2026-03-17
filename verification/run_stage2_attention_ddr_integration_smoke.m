@@ -15,10 +15,14 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
 
     buildModel = getFieldOr(options, 'BuildModel', true);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
+    weightRspCfg = getFieldOr(options, 'WeightRspConfig', struct('tag_base', 0, 'tag_stride', 8));
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'verification'));
-    modelInfo = build_stage2_wrapper_tb_model(rootDir, struct('BuildModel', buildModel, 'KvAddressConfig', kvCfg));
+    modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
+        'BuildModel', buildModel, ...
+        'KvAddressConfig', kvCfg, ...
+        'WeightRspConfig', weightRspCfg));
     tbName = char(modelInfo.tbName);
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
@@ -57,9 +61,9 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
     result.attn_k_rsp_data_nonzero = any(abs(attnKRspData) > 0);
     result.attn_v_rsp_data_nonzero = any(abs(attnVRspData) > 0);
     result.attn_rsp_data_distinct = are_distinct_peaks(attnQRspData, attnKRspData, attnVRspData);
-    result.attn_q_rsp_matches_req = matches_tagged_response(attnQReqAddr, attnQRspData, 32);
-    result.attn_k_rsp_matches_req = matches_tagged_response(attnKReqAddr, attnKRspData, 40);
-    result.attn_v_rsp_matches_req = matches_tagged_response(attnVReqAddr, attnVRspData, 48);
+    result.attn_q_rsp_matches_req = matches_tagged_response(attnQReqAddr, attnQRspData, weight_rsp_signature(weightRspCfg, 4));
+    result.attn_k_rsp_matches_req = matches_tagged_response(attnKReqAddr, attnKRspData, weight_rsp_signature(weightRspCfg, 5));
+    result.attn_v_rsp_matches_req = matches_tagged_response(attnVReqAddr, attnVRspData, weight_rsp_signature(weightRspCfg, 6));
     result.rd_rsp_valid_seen = any(rdRspValid > 0.5);
     result.rd_rsp_data_nonzero = any(abs(rdRspData) > 0);
     result.out_hidden_nonzero = any(abs(outHidden) > 0);
@@ -140,4 +144,9 @@ function yes = matches_tagged_response(reqAddr, rspData, signature)
     reqPeak = max(double(reqAddr(:)));
     rspPeak = max(double(rspData(:)));
     yes = rspPeak == (reqPeak + double(signature));
+end
+
+function signature = weight_rsp_signature(cfg, tagIndex)
+    signature = double(getFieldOr(cfg, 'tag_base', 0)) + ...
+        double(tagIndex) * double(getFieldOr(cfg, 'tag_stride', 8));
 end

@@ -1379,12 +1379,26 @@ function configure_attention(subPath)
         'Inputs', '++', 'Position', [180, 295, 215, 325]);
     add_block('simulink/Math Operations/Add', [subPath '/head_group_bias'], ...
         'Inputs', '++', 'Position', [250, 250, 285, 280]);
+    add_block('simulink/Math Operations/Add', [subPath '/head_group_den'], ...
+        'Inputs', '++', 'Position', [250, 295, 285, 325]);
     add_block('simulink/Math Operations/Divide', [subPath '/head_group_norm'], ...
         'Position', [310, 250, 345, 285]);
-    add_block('simulink/Math Operations/Add', [subPath '/score_den'], ...
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/qk_pair_valid'], ...
+        'Operator', 'AND', 'Position', [250, 95, 280, 120]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/qk_pair_valid_z'], ...
+        'InitialCondition', '0', 'Position', [300, 95, 330, 120]);
+    add_block('simulink/Math Operations/Product', [subPath '/score_stage_gate'], ...
+        'Inputs', '**', 'Position', [340, 55, 375, 95]);
+    add_block('simulink/Math Operations/Add', [subPath '/score_tile_bias'], ...
+        'Inputs', '++', 'Position', [350, 250, 385, 280]);
+    add_block('simulink/Math Operations/Add', [subPath '/score_den_pre'], ...
         'Inputs', '++', 'Position', [350, 55, 385, 95]);
+    add_block('simulink/Math Operations/Add', [subPath '/score_den'], ...
+        'Inputs', '++', 'Position', [420, 55, 455, 95]);
     add_block('simulink/Math Operations/Product', [subPath '/softmax_gate'], ...
         'Inputs', '**', 'Position', [420, 30, 455, 60]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/softmax_valid'], ...
+        'Operator', 'AND', 'Position', [470, 110, 500, 135]);
     add_block('simulink/Math Operations/Add', [subPath '/softmax_online_den'], ...
         'Inputs', '++', 'Position', [420, 70, 455, 100]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/row_sum_z'], ...
@@ -1393,14 +1407,26 @@ function configure_attention(subPath)
         'Inputs', '++', 'Position', [520, 70, 555, 100]);
     add_block('simulink/Math Operations/Divide', [subPath '/score_norm'], ...
         'Position', [490, 50, 525, 100]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/softmax_valid_z'], ...
+        'InitialCondition', '0', 'Position', [550, 100, 580, 125]);
+    add_block('simulink/Math Operations/Product', [subPath '/softmax_value_gate'], ...
+        'Inputs', '**', 'Position', [550, 25, 585, 55]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/softmax_stage_z'], ...
         'InitialCondition', '0', 'Position', [550, 55, 580, 75]);
     add_block('simulink/Math Operations/Product', [subPath '/scorev_gate'], ...
         'Inputs', '**', 'Position', [600, 35, 635, 65]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/scorev_input_valid'], ...
+        'Operator', 'AND', 'Position', [600, 130, 630, 155]);
     add_block('simulink/Math Operations/Product', [subPath '/value_weight'], ...
         'Inputs', '**', 'Position', [600, 80, 635, 120]);
+    add_block('simulink/Math Operations/Add', [subPath '/scorev_den'], ...
+        'Inputs', '++', 'Position', [650, 130, 685, 160]);
     add_block('simulink/Math Operations/Divide', [subPath '/scorev_reduce'], ...
         'Position', [670, 80, 705, 120]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/scorev_valid_z'], ...
+        'InitialCondition', '0', 'Position', [730, 130, 760, 155]);
+    add_block('simulink/Math Operations/Product', [subPath '/output_valid_gate'], ...
+        'Inputs', '**', 'Position', [730, 80, 765, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/scorev_stage_z'], ...
         'InitialCondition', '0', 'Position', [730, 90, 760, 110]);
     add_or_reset_bus_creator(subPath, 'req_bc', 6, [560, 130, 600, 240], 'WeightReqAttnBus');
@@ -1420,8 +1446,10 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'array_cols/1', 'array_dim_sum/2');
     safe_add_line(subPath, 'score_scale/1', 'head_group_bias/1');
     safe_add_line(subPath, 'q_heads_per_kv/1', 'head_group_bias/2');
+    safe_add_line(subPath, 'active_seq_len/1', 'head_group_den/1');
+    safe_add_line(subPath, 'array_dim_sum/1', 'head_group_den/2');
     safe_add_line(subPath, 'head_group_bias/1', 'head_group_norm/1');
-    safe_add_line(subPath, 'active_seq_len/1', 'head_group_norm/2');
+    safe_add_line(subPath, 'head_group_den/1', 'head_group_norm/2');
 
     [qOut, qReqAddr, qReqValid] = add_streamed_weight_mul(subPath, 'q', 'q_head_stream_gain/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, '0.6');
@@ -1433,31 +1461,51 @@ function configure_attention(subPath)
     safe_add_line(subPath, qOut, 'head_group_stage_z/1');
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
     safe_add_line(subPath, kOut, 'score_mul/2');
-    safe_add_line(subPath, 'score_mul/1', 'score_abs/1');
+    safe_add_line(subPath, 'rsp_sel/2', 'qk_pair_valid/1');
+    safe_add_line(subPath, 'rsp_sel/4', 'qk_pair_valid/2');
+    safe_add_line(subPath, 'qk_pair_valid/1', 'qk_pair_valid_z/1');
+    safe_add_line(subPath, 'score_mul/1', 'score_stage_gate/1');
+    safe_add_line(subPath, 'qk_pair_valid_z/1', 'score_stage_gate/2');
+    safe_add_line(subPath, 'score_stage_gate/1', 'score_abs/1');
     safe_add_line(subPath, 'score_abs/1', 'row_max/1');
     safe_add_line(subPath, 'row_max_z/1', 'row_max/2');
     safe_add_line(subPath, 'row_max/1', 'row_max_z/1');
     safe_add_line(subPath, 'score_abs/1', 'score_shift/1');
     safe_add_line(subPath, 'row_max/1', 'score_shift/2');
-    safe_add_line(subPath, 'score_abs/1', 'score_den/1');
-    safe_add_line(subPath, 'head_group_norm/1', 'score_den/2');
+    safe_add_line(subPath, 'score_abs/1', 'score_den_pre/1');
+    safe_add_line(subPath, 'head_group_norm/1', 'score_tile_bias/1');
+    safe_add_line(subPath, 'tile_k/1', 'score_tile_bias/2');
+    safe_add_line(subPath, 'score_den_pre/1', 'score_den/1');
+    safe_add_line(subPath, 'score_tile_bias/1', 'score_den/2');
     safe_add_line(subPath, 'score_shift/1', 'softmax_gate/1');
     safe_add_line(subPath, 'online_softmax_en/1', 'softmax_gate/2');
+    safe_add_line(subPath, 'qk_pair_valid_z/1', 'softmax_valid/1');
+    safe_add_line(subPath, 'online_softmax_en/1', 'softmax_valid/2');
     safe_add_line(subPath, 'softmax_gate/1', 'softmax_online_den/1');
     safe_add_line(subPath, 'score_den/1', 'softmax_online_den/2');
     safe_add_line(subPath, 'row_sum_z/1', 'row_sum_accum/1');
     safe_add_line(subPath, 'softmax_online_den/1', 'row_sum_accum/2');
     safe_add_line(subPath, 'row_sum_accum/1', 'row_sum_z/1');
-    safe_add_line(subPath, 'score_mul/1', 'score_norm/1');
+    safe_add_line(subPath, 'score_stage_gate/1', 'score_norm/1');
     safe_add_line(subPath, 'row_sum_accum/1', 'score_norm/2');
-    safe_add_line(subPath, 'score_norm/1', 'softmax_stage_z/1');
+    safe_add_line(subPath, 'softmax_valid/1', 'softmax_valid_z/1');
+    safe_add_line(subPath, 'score_norm/1', 'softmax_value_gate/1');
+    safe_add_line(subPath, 'softmax_valid_z/1', 'softmax_value_gate/2');
+    safe_add_line(subPath, 'softmax_value_gate/1', 'softmax_stage_z/1');
     safe_add_line(subPath, 'softmax_stage_z/1', 'scorev_gate/1');
     safe_add_line(subPath, 'scorev_enable/1', 'scorev_gate/2');
+    safe_add_line(subPath, 'softmax_valid_z/1', 'scorev_input_valid/1');
+    safe_add_line(subPath, 'rsp_sel/6', 'scorev_input_valid/2');
     safe_add_line(subPath, 'scorev_gate/1', 'value_weight/1');
     safe_add_line(subPath, vOut, 'value_weight/2');
+    safe_add_line(subPath, 'psum_bank_count/1', 'scorev_den/1');
+    safe_add_line(subPath, 'tile_out/1', 'scorev_den/2');
     safe_add_line(subPath, 'value_weight/1', 'scorev_reduce/1');
-    safe_add_line(subPath, 'psum_bank_count/1', 'scorev_reduce/2');
-    safe_add_line(subPath, 'scorev_reduce/1', 'scorev_stage_z/1');
+    safe_add_line(subPath, 'scorev_den/1', 'scorev_reduce/2');
+    safe_add_line(subPath, 'scorev_input_valid/1', 'scorev_valid_z/1');
+    safe_add_line(subPath, 'scorev_reduce/1', 'output_valid_gate/1');
+    safe_add_line(subPath, 'scorev_valid_z/1', 'output_valid_gate/2');
+    safe_add_line(subPath, 'output_valid_gate/1', 'scorev_stage_z/1');
     safe_add_line(subPath, 'scorev_stage_z/1', 'y_out/1');
 
     safe_add_line(subPath, qReqAddr, 'req_bc/1');

@@ -15,6 +15,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     buildDutModel = getFieldOr(options, 'BuildModel', true);
     persistModel = getFieldOr(options, 'PersistModel', false);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
+    weightRspCfg = getFieldOr(options, 'WeightRspConfig', struct('tag_base', 0, 'tag_stride', 8));
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'simulink', 'fsm'));
@@ -73,6 +74,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     configure_weight_rsp_ref([tbName '/weight_ref_u']);
 
     build_typed_sources(tbName, dutName, inports);
+    build_weight_rsp_cfg_sources(tbName, weightRspCfg);
     connect_dut_inputs(tbName, inports);
     connect_dut_outputs(tbName, outports);
 
@@ -90,6 +92,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     info.tbPath = string(tbPath);
     info.dutName = dutName;
     info.persistModel = persistModel;
+    info.weightRspCfg = weightRspCfg;
 end
 
 function clear_model_contents(mdlName)
@@ -130,6 +133,18 @@ function connect_dut_inputs(tbName, inports)
             add_line(tbName, ['src_' name '/1'], ['dut/' num2str(inports(i).port)], 'autorouting', 'on');
         end
     end
+
+    add_line(tbName, 'src_cfg_weight_rsp_tag_base/1', 'weight_ref_u/2', 'autorouting', 'on');
+    add_line(tbName, 'src_cfg_weight_rsp_tag_stride/1', 'weight_ref_u/3', 'autorouting', 'on');
+end
+
+function build_weight_rsp_cfg_sources(tbName, weightRspCfg)
+    add_block('simulink/Sources/Constant', [tbName '/src_cfg_weight_rsp_tag_base'], ...
+        'Value', num2str(getFieldOr(weightRspCfg, 'tag_base', 0)), ...
+        'Position', [40, 650, 100, 670]);
+    add_block('simulink/Sources/Constant', [tbName '/src_cfg_weight_rsp_tag_stride'], ...
+        'Value', num2str(getFieldOr(weightRspCfg, 'tag_stride', 8)), ...
+        'Position', [40, 690, 100, 710]);
 end
 
 function connect_dut_outputs(tbName, outports)
@@ -254,6 +269,8 @@ function configure_weight_rsp_ref(subPath)
 
     add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 75, 50, 89], ...
         'OutDataTypeStr', 'Bus: WeightReqBus');
+    add_block('simulink/Sources/In1', [subPath '/cfg_tag_base'], 'Position', [20, 120, 50, 134]);
+    add_block('simulink/Sources/In1', [subPath '/cfg_tag_stride'], 'Position', [20, 160, 50, 174]);
     add_block('simulink/Signal Routing/Bus Selector', [subPath '/req_sel'], 'Position', [95, 25, 145, 190]);
     set_param([subPath '/req_sel'], 'OutputSignals', ...
         'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
@@ -270,7 +287,6 @@ function configure_weight_rsp_ref(subPath)
     add_line(subPath, 'req_bus/1', 'req_sel/1', 'autorouting', 'on');
     add_line(subPath, 'rsp_bc/1', 'rsp_bus/1', 'autorouting', 'on');
 
-    pageSignatures = {'0','8','16','24','32','40','48','56','64'};
     reqNames = { ...
         'gamma_addr', 'gamma_valid', ...
         'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
@@ -290,12 +306,16 @@ function configure_weight_rsp_ref(subPath)
             'InitialCondition', '0', 'Position', [270, baseY + 12, 300, baseY + 30]);
         add_block('simulink/Discrete/Unit Delay', [subPath '/addr_d2_' num2str(i)], ...
             'InitialCondition', '0', 'Position', [320, baseY + 12, 350, baseY + 30]);
-        add_block('simulink/Sources/Constant', [subPath '/page_sig_' num2str(i)], ...
-            'Value', pageSignatures{i}, 'Position', [360, baseY + 2, 390, baseY + 18]);
+        add_block('simulink/Sources/Constant', [subPath '/tag_idx_' num2str(i)], ...
+            'Value', num2str(i - 1), 'Position', [360, baseY + 2, 390, baseY + 18]);
+        add_block('simulink/Math Operations/Product', [subPath '/tag_stride_mul_' num2str(i)], ...
+            'Inputs', '**', 'Position', [405, baseY + 2, 440, baseY + 24]);
+        add_block('simulink/Math Operations/Add', [subPath '/tag_sum_' num2str(i)], ...
+            'Inputs', '++', 'Position', [455, baseY + 2, 490, baseY + 24]);
         add_block('simulink/Math Operations/Add', [subPath '/data_page_tag_' num2str(i)], ...
-            'Inputs', '++', 'Position', [400, baseY + 8, 435, baseY + 30]);
+            'Inputs', '++', 'Position', [505, baseY + 8, 540, baseY + 30]);
         add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/data_u8_' num2str(i)], ...
-            'OutDataTypeStr', 'uint8', 'Position', [455, baseY + 8, 485, baseY + 30]);
+            'OutDataTypeStr', 'uint8', 'Position', [555, baseY + 8, 585, baseY + 30]);
 
         reqAddrPort = 2 * i - 1;
         reqValidPort = 2 * i;
@@ -310,8 +330,12 @@ function configure_weight_rsp_ref(subPath)
         add_line(subPath, ['req_hs_' num2str(i) '/1'], ['val_d1_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['val_d1_' num2str(i) '/1'], ['val_d2_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['addr_d1_' num2str(i) '/1'], ['addr_d2_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, 'cfg_tag_stride/1', ['tag_stride_mul_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['tag_idx_' num2str(i) '/1'], ['tag_stride_mul_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, 'cfg_tag_base/1', ['tag_sum_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['tag_stride_mul_' num2str(i) '/1'], ['tag_sum_' num2str(i) '/2'], 'autorouting', 'on');
         add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/1'], 'autorouting', 'on');
-        add_line(subPath, ['page_sig_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, ['tag_sum_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/2'], 'autorouting', 'on');
         add_line(subPath, ['data_page_tag_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['data_u8_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)], 'autorouting', 'on');
         add_line(subPath, ['val_d2_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValidPort)], 'autorouting', 'on');
@@ -667,6 +691,10 @@ function value = default_constant_for_name(name)
         case 'cfg_weight_page_base'
             value = '64';
         case 'cfg_weight_page_stride'
+            value = '8';
+        case 'cfg_weight_rsp_tag_base'
+            value = '0';
+        case 'cfg_weight_rsp_tag_stride'
             value = '8';
         case 'cfg_rope_theta_scale'
             value = '1';
