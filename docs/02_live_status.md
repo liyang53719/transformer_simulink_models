@@ -2,7 +2,7 @@
 
 本文件用于记录“当前在做什么、做到哪里、下一步做什么”。
 
-更新时间：2026-03-17
+更新时间：2026-03-18
 
 ## 使用规则
 - 每次开始工作前：更新“今日目标”。
@@ -16,6 +16,12 @@
 - [x] 准备 M1（单 Block）任务拆分
 
 ## 进展日志
+
+### 2026-03-18
+- 新增 `run_stage2_attention_pipeline_smoke`，直接对 `attention_u` 内部关键线启用 signal logging，验证 `qk_pair_valid -> softmax_valid -> scorev_input_valid` 的 staged valid 传播顺序和 1-cycle pipeline delay。
+- `run_stage2_smoke_suite_fast` 已纳入新的 attention pipeline smoke，attention 主线现在不仅检查请求/响应和最终输出，也检查内部阶段推进是否成立。
+- 验证通过：`run_stage2_attention_pipeline_smoke`、`run_stage2_smoke_suite_fast`。
+- 下一步：继续把 attention 内部可观测点从 valid 链扩展到更接近真实 tile/page/bank 语义，并推进 wrapper 外部参数响应向真实页布局逼近。
 
 ### 2026-03-17
 - wrapper 联调路径新增 attention+DDR 集成 smoke，已纳入 fast suite。
