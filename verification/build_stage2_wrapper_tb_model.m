@@ -193,38 +193,28 @@ function configure_input_read_memory(subPath)
     add_block('simulink/Sources/In1', [subPath '/rd_addr'], 'Position', [20, 45, 50, 59]);
     add_block('simulink/Sources/In1', [subPath '/rd_len'], 'Position', [20, 85, 50, 99]);
     add_block('simulink/Sources/In1', [subPath '/rd_valid'], 'Position', [20, 125, 50, 139]);
-    add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
-        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [70, 15, 110, 35]);
-    add_block('simulink/Sources/Constant', [subPath '/latency_seed'], ...
-        'Value', '7', 'Position', [70, 45, 110, 65]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/rd_fire'], ...
-        'Operator', 'AND', 'Position', [120, 120, 150, 145]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_fire_z'], ...
-        'InitialCondition', '0', 'Position', [170, 120, 200, 145]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_addr_z'], ...
-        'InitialCondition', '0', 'Position', [170, 40, 200, 65]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_len_z'], ...
-        'InitialCondition', '0', 'Position', [170, 80, 200, 105]);
-    add_block('simulink/Math Operations/Add', [subPath '/rd_addr_len_sum'], ...
-        'Inputs', '++', 'Position', [220, 55, 255, 85]);
-    add_block('simulink/Math Operations/Add', [subPath '/rd_data_pack'], ...
-        'Inputs', '++', 'Position', [275, 55, 310, 85]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterRead BusCreator'], ...
+        'Position', [80, 30, 180, 160]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterReadController'], ...
+        'Position', [215, 30, 345, 160]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterRead BusSelector'], ...
+        'Position', [380, 30, 500, 160]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_ready'], 'Position', [330, 20, 360, 34]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'Position', [330, 60, 360, 74]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_data_valid'], 'Position', [330, 120, 360, 134]);
 
-    add_line(subPath, 'ready_const/1', 'rd_ready/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_valid/1', 'rd_fire/1', 'autorouting', 'on');
-    add_line(subPath, 'ready_const/1', 'rd_fire/2', 'autorouting', 'on');
-    add_line(subPath, 'rd_fire/1', 'rd_fire_z/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_addr/1', 'rd_addr_z/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_len/1', 'rd_len_z/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_addr_z/1', 'rd_addr_len_sum/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_len_z/1', 'rd_addr_len_sum/2', 'autorouting', 'on');
-    add_line(subPath, 'rd_addr_len_sum/1', 'rd_data_pack/1', 'autorouting', 'on');
-    add_line(subPath, 'latency_seed/1', 'rd_data_pack/2', 'autorouting', 'on');
-    add_line(subPath, 'rd_data_pack/1', 'rd_data/1', 'autorouting', 'on');
-    add_line(subPath, 'rd_fire_z/1', 'rd_data_valid/1', 'autorouting', 'on');
+    configure_axi4masterread_buscreator([subPath '/AXI4MasterRead BusCreator']);
+    configure_axi4masterread_controller([subPath '/AXI4MasterReadController']);
+    configure_axi4masterread_busselector([subPath '/AXI4MasterRead BusSelector']);
+
+    add_line(subPath, 'rd_addr/1', 'AXI4MasterRead BusCreator/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_len/1', 'AXI4MasterRead BusCreator/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_valid/1', 'AXI4MasterRead BusCreator/3', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusCreator/1', 'AXI4MasterReadController/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterReadController/1', 'rd_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterReadController/2', 'AXI4MasterRead BusSelector/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusSelector/1', 'rd_data/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusSelector/2', 'rd_data_valid/1', 'autorouting', 'on');
 end
 
 function configure_output_write_memory(subPath)
@@ -235,25 +225,219 @@ function configure_output_write_memory(subPath)
     add_block('simulink/Sources/In1', [subPath '/wr_valid'], 'Position', [20, 105, 50, 119]);
     add_block('simulink/Sources/In1', [subPath '/wr_data'], 'Position', [20, 140, 50, 154]);
     add_block('simulink/Sources/In1', [subPath '/wr_en'], 'Position', [20, 175, 50, 189]);
-    add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
-        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [90, 20, 130, 40]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_fire'], ...
-        'Operator', 'AND', 'Position', [150, 95, 180, 120]);
-    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_commit'], ...
-        'Operator', 'AND', 'Position', [210, 115, 240, 140]);
-    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_addr'], 'Position', [260, 30, 280, 50]);
-    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_len'], 'Position', [260, 65, 280, 85]);
-    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_data'], 'Position', [260, 145, 280, 165]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterWrite BusCreator'], ...
+        'Position', [80, 25, 190, 185]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterWriteController'], ...
+        'Position', [225, 25, 355, 185]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterWrite BusSelector'], ...
+        'Position', [390, 25, 500, 185]);
     add_block('simulink/Sinks/Out1', [subPath '/wr_ready'], 'Position', [310, 120, 340, 134]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_request_next_line'], 'Position', [530, 120, 550, 140]);
 
-    add_line(subPath, 'ready_const/1', 'wr_fire/1', 'autorouting', 'on');
-    add_line(subPath, 'wr_valid/1', 'wr_fire/2', 'autorouting', 'on');
+    configure_axi4masterwrite_buscreator([subPath '/AXI4MasterWrite BusCreator']);
+    configure_axi4masterwrite_controller([subPath '/AXI4MasterWriteController']);
+    configure_axi4masterwrite_busselector([subPath '/AXI4MasterWrite BusSelector']);
+
+    add_line(subPath, 'wr_addr/1', 'AXI4MasterWrite BusCreator/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_len/1', 'AXI4MasterWrite BusCreator/2', 'autorouting', 'on');
+    add_line(subPath, 'wr_valid/1', 'AXI4MasterWrite BusCreator/3', 'autorouting', 'on');
+    add_line(subPath, 'wr_data/1', 'AXI4MasterWrite BusCreator/4', 'autorouting', 'on');
+    add_line(subPath, 'wr_en/1', 'AXI4MasterWrite BusCreator/5', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusCreator/1', 'AXI4MasterWriteController/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWriteController/1', 'AXI4MasterWrite BusSelector/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/1', 'wr_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/2', 'term_request_next_line/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterread_buscreator(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/rd_addr'], 'Position', [20, 35, 50, 49]);
+    add_block('simulink/Sources/In1', [subPath '/rd_len'], 'Position', [20, 75, 50, 89]);
+    add_block('simulink/Sources/In1', [subPath '/rd_valid'], 'Position', [20, 115, 50, 129]);
+    add_block('simulink/Signal Routing/Bus Creator', [subPath '/req_bc'], 'Position', [110, 45, 150, 125]);
+    set_param([subPath '/req_bc'], 'Inputs', '3');
+    try
+        set_param([subPath '/req_bc'], 'InputSignalNames', 'rd_addr,rd_len,rd_valid');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/req_bus'], 'Position', [190, 80, 220, 94]);
+    add_line(subPath, 'rd_addr/1', 'req_bc/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_len/1', 'req_bc/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_valid/1', 'req_bc/3', 'autorouting', 'on');
+    set_line_name_by_dst_port(subPath, 'req_bc', 1, 'rd_addr');
+    set_line_name_by_dst_port(subPath, 'req_bc', 2, 'rd_len');
+    set_line_name_by_dst_port(subPath, 'req_bc', 3, 'rd_valid');
+    add_line(subPath, 'req_bc/1', 'req_bus/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterread_controller(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 80, 50, 94]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterRead BusSelector'], ...
+        'Position', [85, 45, 195, 130]);
+    configure_axi4masterread_req_busselector([subPath '/AXI4MasterRead BusSelector']);
+    add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
+        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [225, 20, 265, 40]);
+    add_block('simulink/Sources/Constant', [subPath '/latency_seed'], ...
+        'Value', '7', 'Position', [225, 50, 265, 70]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/rd_fire'], ...
+        'Operator', 'AND', 'Position', [285, 105, 315, 130]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_fire_z'], ...
+        'InitialCondition', '0', 'Position', [335, 105, 365, 130]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_addr_z'], ...
+        'InitialCondition', '0', 'Position', [335, 35, 365, 60]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/rd_len_z'], ...
+        'InitialCondition', '0', 'Position', [335, 70, 365, 95]);
+    add_block('simulink/Math Operations/Add', [subPath '/rd_addr_len_sum'], ...
+        'Inputs', '++', 'Position', [385, 45, 420, 75]);
+    add_block('simulink/Math Operations/Add', [subPath '/rd_data_pack'], ...
+        'Inputs', '++', 'Position', [440, 45, 475, 75]);
+    add_block('simulink/Signal Routing/Bus Creator', [subPath '/rsp_bc'], 'Position', [510, 55, 550, 115]);
+    set_param([subPath '/rsp_bc'], 'Inputs', '2');
+    try
+        set_param([subPath '/rsp_bc'], 'InputSignalNames', 'rd_data,rd_data_valid');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/rd_ready'], 'Position', [585, 20, 615, 34]);
+    add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [585, 80, 615, 94]);
+
+    add_line(subPath, 'req_bus/1', 'AXI4MasterRead BusSelector/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusSelector/1', 'rd_addr_z/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusSelector/2', 'rd_len_z/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterRead BusSelector/3', 'rd_fire/1', 'autorouting', 'on');
+    add_line(subPath, 'ready_const/1', 'rd_fire/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_fire/1', 'rd_fire_z/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_addr_z/1', 'rd_addr_len_sum/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_len_z/1', 'rd_addr_len_sum/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_addr_len_sum/1', 'rd_data_pack/1', 'autorouting', 'on');
+    add_line(subPath, 'latency_seed/1', 'rd_data_pack/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_data_pack/1', 'rsp_bc/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_fire_z/1', 'rsp_bc/2', 'autorouting', 'on');
+    set_line_name_by_dst_port(subPath, 'rsp_bc', 1, 'rd_data');
+    set_line_name_by_dst_port(subPath, 'rsp_bc', 2, 'rd_data_valid');
+    add_line(subPath, 'ready_const/1', 'rd_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_bc/1', 'rsp_bus/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterread_req_busselector(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 65, 50, 79]);
+    add_block('simulink/Signal Routing/Bus Selector', [subPath '/req_sel'], 'Position', [95, 35, 145, 105]);
+    set_param([subPath '/req_sel'], 'OutputSignals', 'rd_addr,rd_len,rd_valid');
+    add_block('simulink/Sinks/Out1', [subPath '/rd_addr'], 'Position', [190, 35, 220, 49]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_len'], 'Position', [190, 65, 220, 79]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_valid'], 'Position', [190, 95, 220, 109]);
+    add_line(subPath, 'req_bus/1', 'req_sel/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/1', 'rd_addr/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/2', 'rd_len/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/3', 'rd_valid/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterread_busselector(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/rsp_bus'], 'Position', [20, 65, 50, 79]);
+    add_block('simulink/Signal Routing/Bus Selector', [subPath '/rsp_sel'], 'Position', [95, 35, 145, 105]);
+    set_param([subPath '/rsp_sel'], 'OutputSignals', 'rd_data,rd_data_valid');
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'Position', [190, 35, 220, 49]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data_valid'], 'Position', [190, 95, 220, 109]);
+    add_line(subPath, 'rsp_bus/1', 'rsp_sel/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_sel/1', 'rd_data/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_sel/2', 'rd_data_valid/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterwrite_buscreator(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/wr_addr'], 'Position', [20, 35, 50, 49]);
+    add_block('simulink/Sources/In1', [subPath '/wr_len'], 'Position', [20, 65, 50, 79]);
+    add_block('simulink/Sources/In1', [subPath '/wr_valid'], 'Position', [20, 95, 50, 109]);
+    add_block('simulink/Sources/In1', [subPath '/wr_data'], 'Position', [20, 125, 50, 139]);
+    add_block('simulink/Sources/In1', [subPath '/wr_en'], 'Position', [20, 155, 50, 169]);
+    add_block('simulink/Signal Routing/Bus Creator', [subPath '/req_bc'], 'Position', [110, 55, 150, 155]);
+    set_param([subPath '/req_bc'], 'Inputs', '5');
+    try
+        set_param([subPath '/req_bc'], 'InputSignalNames', 'wr_addr,wr_len,wr_valid,wr_data,wr_en');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/req_bus'], 'Position', [190, 100, 220, 114]);
+    add_line(subPath, 'wr_addr/1', 'req_bc/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_len/1', 'req_bc/2', 'autorouting', 'on');
+    add_line(subPath, 'wr_valid/1', 'req_bc/3', 'autorouting', 'on');
+    add_line(subPath, 'wr_data/1', 'req_bc/4', 'autorouting', 'on');
+    add_line(subPath, 'wr_en/1', 'req_bc/5', 'autorouting', 'on');
+    set_line_name_by_dst_port(subPath, 'req_bc', 1, 'wr_addr');
+    set_line_name_by_dst_port(subPath, 'req_bc', 2, 'wr_len');
+    set_line_name_by_dst_port(subPath, 'req_bc', 3, 'wr_valid');
+    set_line_name_by_dst_port(subPath, 'req_bc', 4, 'wr_data');
+    set_line_name_by_dst_port(subPath, 'req_bc', 5, 'wr_en');
+    add_line(subPath, 'req_bc/1', 'req_bus/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterwrite_controller(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 90, 50, 104]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterWrite BusSelector'], ...
+        'Position', [85, 35, 195, 165]);
+    configure_axi4masterwrite_req_busselector([subPath '/AXI4MasterWrite BusSelector']);
+    add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
+        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [225, 25, 265, 45]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_fire'], ...
+        'Operator', 'AND', 'Position', [290, 90, 320, 115]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_commit'], ...
+        'Operator', 'AND', 'Position', [345, 110, 375, 135]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_addr'], 'Position', [405, 35, 425, 55]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_len'], 'Position', [405, 65, 425, 85]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_data'], 'Position', [405, 125, 425, 145]);
+    add_block('simulink/Signal Routing/Bus Creator', [subPath '/rsp_bc'], 'Position', [450, 85, 490, 140]);
+    set_param([subPath '/rsp_bc'], 'Inputs', '2');
+    try
+        set_param([subPath '/rsp_bc'], 'InputSignalNames', 'wr_ready,request_next_line');
+    catch
+    end
+    add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [530, 100, 560, 114]);
+
+    add_line(subPath, 'req_bus/1', 'AXI4MasterWrite BusSelector/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/1', 'term_wr_addr/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/2', 'term_wr_len/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/3', 'wr_fire/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/4', 'term_wr_data/1', 'autorouting', 'on');
+    add_line(subPath, 'AXI4MasterWrite BusSelector/5', 'wr_commit/2', 'autorouting', 'on');
+    add_line(subPath, 'ready_const/1', 'wr_fire/2', 'autorouting', 'on');
     add_line(subPath, 'wr_fire/1', 'wr_commit/1', 'autorouting', 'on');
-    add_line(subPath, 'wr_en/1', 'wr_commit/2', 'autorouting', 'on');
-    add_line(subPath, 'ready_const/1', 'wr_ready/1', 'autorouting', 'on');
-    add_line(subPath, 'wr_addr/1', 'term_wr_addr/1', 'autorouting', 'on');
-    add_line(subPath, 'wr_len/1', 'term_wr_len/1', 'autorouting', 'on');
-    add_line(subPath, 'wr_data/1', 'term_wr_data/1', 'autorouting', 'on');
+    add_line(subPath, 'ready_const/1', 'rsp_bc/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_commit/1', 'rsp_bc/2', 'autorouting', 'on');
+    set_line_name_by_dst_port(subPath, 'rsp_bc', 1, 'wr_ready');
+    set_line_name_by_dst_port(subPath, 'rsp_bc', 2, 'request_next_line');
+    add_line(subPath, 'rsp_bc/1', 'rsp_bus/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterwrite_req_busselector(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/req_bus'], 'Position', [20, 90, 50, 104]);
+    add_block('simulink/Signal Routing/Bus Selector', [subPath '/req_sel'], 'Position', [95, 35, 145, 145]);
+    set_param([subPath '/req_sel'], 'OutputSignals', 'wr_addr,wr_len,wr_valid,wr_data,wr_en');
+    add_block('simulink/Sinks/Out1', [subPath '/wr_addr'], 'Position', [190, 35, 220, 49]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_len'], 'Position', [190, 65, 220, 79]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_valid'], 'Position', [190, 95, 220, 109]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_data'], 'Position', [190, 125, 220, 139]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_en'], 'Position', [190, 155, 220, 169]);
+    add_line(subPath, 'req_bus/1', 'req_sel/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/1', 'wr_addr/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/2', 'wr_len/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/3', 'wr_valid/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/4', 'wr_data/1', 'autorouting', 'on');
+    add_line(subPath, 'req_sel/5', 'wr_en/1', 'autorouting', 'on');
+end
+
+function configure_axi4masterwrite_busselector(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+    add_block('simulink/Sources/In1', [subPath '/rsp_bus'], 'Position', [20, 65, 50, 79]);
+    add_block('simulink/Signal Routing/Bus Selector', [subPath '/rsp_sel'], 'Position', [95, 35, 145, 110]);
+    set_param([subPath '/rsp_sel'], 'OutputSignals', 'wr_ready,request_next_line');
+    add_block('simulink/Sinks/Out1', [subPath '/wr_ready'], 'Position', [190, 65, 220, 79]);
+    add_block('simulink/Sinks/Out1', [subPath '/request_next_line'], 'Position', [190, 95, 220, 109]);
+    add_line(subPath, 'rsp_bus/1', 'rsp_sel/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_sel/1', 'wr_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'rsp_sel/2', 'request_next_line/1', 'autorouting', 'on');
 end
 
 function ports = get_root_ports(mdlName, blockType)
@@ -357,6 +541,23 @@ function value = default_constant_for_name(name)
             value = '1';
         otherwise
             value = '0';
+    end
+end
+
+function set_line_name_by_dst_port(sys, dstBlockName, dstPort, lineName)
+    try
+        ph = get_param([sys '/' dstBlockName], 'PortHandles');
+        if numel(ph.Inport) >= dstPort
+            ln = get_param(ph.Inport(dstPort), 'Line');
+            if ln ~= -1
+                set_param(ln, 'Name', lineName);
+                try
+                    set_param(ln, 'SignalPropagation', 'on');
+                catch
+                end
+            end
+        end
+    catch
     end
 end
 

@@ -33,3 +33,10 @@ matlab_ref/transformer-models/
 verification/testvectors/*.mat
 matlab_ref/cache/*.mat
 verification/reports/*.json
+
+# Local SoC reference copies used only for manual comparison
+simulink/ref/soc_image_rotation.slx
+simulink/ref/soc_image_rotation_aximanager.m
+simulink/ref/soc_image_rotation_init.m
+simulink/ref/soc_image_rotation_inputdata.mat
+simulink/ref/soc_image_rotation_post.m
