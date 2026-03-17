@@ -24,7 +24,10 @@
 - 新增 `run_stage2_kv_banking_pipeline_smoke`，直接记录 `kv_cache_if_u` 内部 bank 地址、bank 选择和写使能相关信号，并验证它们与 `tile_seq/active_seq_len/tile_k/tile_out/x_bank_count/kv_bank_count/kv_phase_first` 的公式关系。
 - `run_stage2_smoke_suite_fast` 已继续纳入 KV banking pipeline smoke，attention 主线和 KV banking 主线现在都具备内部语义级回归，而不仅是边界活动回归。
 - 验证通过：`run_stage2_kv_banking_pipeline_smoke`、`run_stage2_smoke_suite_fast`、`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
-- 下一步：继续推进 wrapper 外部参数响应向更真实的页布局和模块分段映射逼近，而不是停留在当前 cfg-driven tag 级别。
+- `ffn_swiglu_u` 进一步从近似组合算子推进成“gate/up 融合前级 + down 投影后级”分阶段结构，并新增 `run_stage2_ffn_pipeline_smoke` 直接检查内部 valid 链路。
+- `run_stage2_smoke_suite_fast` 已继续纳入 FFN pipeline smoke，当前 attention、KV banking、FFN 三条主线都具备内部语义级回归，而不只是边界 smoke。
+- 验证通过：`run_stage2_ffn_pipeline_smoke`、`run_stage2_smoke_suite_fast`、`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
+- 下一步：继续把 QKV/FFN 的参数布局和融合数据流从当前阶段语义推进到更接近真实 weight-stationary / offline-concat 设计。
 
 ### 2026-03-17
 - wrapper 联调路径新增 attention+DDR 集成 smoke，已纳入 fast suite。

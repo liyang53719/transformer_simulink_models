@@ -1541,10 +1541,24 @@ function configure_ffn_swiglu(subPath)
         'Inputs', '++', 'Position', [280, 95, 315, 125]);
     add_block('simulink/Math Operations/Divide', [subPath '/gate_norm'], ...
         'Position', [350, 85, 385, 135]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/gateup_pair_valid'], ...
+        'Operator', 'AND', 'Position', [210, 20, 240, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_z'], ...
+        'InitialCondition', '0', 'Position', [265, 20, 295, 45]);
+    add_block('simulink/Math Operations/Product', [subPath '/gate_norm_gate'], ...
+        'Inputs', '**', 'Position', [400, 85, 435, 135]);
     add_block('simulink/Math Operations/Product', [subPath '/swiglu_mul'], ...
         'Inputs', '**', 'Position', [430, 70, 465, 120]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_z'], ...
+        'InitialCondition', '0', 'Position', [490, 20, 520, 45]);
+    add_block('simulink/Math Operations/Product', [subPath '/swiglu_stage_gate'], ...
+        'Inputs', '**', 'Position', [500, 115, 535, 145]);
     add_block('simulink/Math Operations/Gain', [subPath '/down_proj'], ...
         'Gain', '0.8', 'Position', [500, 80, 560, 105]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/down_valid_z'], ...
+        'InitialCondition', '0', 'Position', [570, 20, 600, 45]);
+    add_block('simulink/Math Operations/Product', [subPath '/down_stage_gate'], ...
+        'Inputs', '**', 'Position', [580, 80, 615, 110]);
     add_or_reset_bus_creator(subPath, 'req_bc', 4, [560, 130, 600, 210], 'WeightReqFfnBus');
     try
         set_param([subPath '/req_bc'], 'InputSignalNames', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
@@ -1562,15 +1576,26 @@ function configure_ffn_swiglu(subPath)
     [gateOut, gateReqAddr, gateReqValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 145, '0.9');
 
+    safe_add_line(subPath, 'rsp_sel/2', 'gateup_pair_valid/1');
+    safe_add_line(subPath, 'rsp_sel/4', 'gateup_pair_valid/2');
+    safe_add_line(subPath, 'gateup_pair_valid/1', 'gateup_pair_valid_z/1');
     safe_add_line(subPath, gateOut, 'gate_abs/1');
     safe_add_line(subPath, 'gate_abs/1', 'gate_den/1');
     safe_add_line(subPath, 'one_const/1', 'gate_den/2');
     safe_add_line(subPath, gateOut, 'gate_norm/1');
     safe_add_line(subPath, 'gate_den/1', 'gate_norm/2');
+    safe_add_line(subPath, 'gate_norm/1', 'gate_norm_gate/1');
+    safe_add_line(subPath, 'gateup_pair_valid_z/1', 'gate_norm_gate/2');
     safe_add_line(subPath, upOut, 'swiglu_mul/1');
-    safe_add_line(subPath, 'gate_norm/1', 'swiglu_mul/2');
-    safe_add_line(subPath, 'swiglu_mul/1', 'down_proj/1');
-    safe_add_line(subPath, 'down_proj/1', 'y_out/1');
+    safe_add_line(subPath, 'gate_norm_gate/1', 'swiglu_mul/2');
+    safe_add_line(subPath, 'gateup_pair_valid_z/1', 'swiglu_valid_z/1');
+    safe_add_line(subPath, 'swiglu_mul/1', 'swiglu_stage_gate/1');
+    safe_add_line(subPath, 'swiglu_valid_z/1', 'swiglu_stage_gate/2');
+    safe_add_line(subPath, 'swiglu_stage_gate/1', 'down_proj/1');
+    safe_add_line(subPath, 'swiglu_valid_z/1', 'down_valid_z/1');
+    safe_add_line(subPath, 'down_proj/1', 'down_stage_gate/1');
+    safe_add_line(subPath, 'down_valid_z/1', 'down_stage_gate/2');
+    safe_add_line(subPath, 'down_stage_gate/1', 'y_out/1');
 
     safe_add_line(subPath, upReqAddr, 'req_bc/1');
     safe_add_line(subPath, upReqValid, 'req_bc/2');
