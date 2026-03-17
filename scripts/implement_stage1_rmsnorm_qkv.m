@@ -35,6 +35,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         ensure_weight_bus_objects();
         ensure_stage2_ports(mdlName);
         remove_top_level_weight_req_merge_blocks(mdlName);
+        remove_unused_top_level_blocks(mdlName);
         ensure_memory_subsystems(mdlName);
         configure_ctrl_fsm([mdlName '/ctrl_fsm_u']);
         configure_kv_cache_if([mdlName '/kv_cache_if_u']);
@@ -44,7 +45,6 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         configure_ddr_model_if([mdlName '/ddr_model_if_u']);
         configure_weight_addr_map([mdlName '/weight_addr_map_u']);
         configure_prefill_scheduler([mdlName '/prefill_sched_u'], prefillCfg);
-        configure_weight_req_bridge([mdlName '/w_req_bridge_u']);
         configure_axi_weight_rd([mdlName '/axi_weight_rd_u']);
     end
 
@@ -210,6 +210,8 @@ function build_prefill_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'prefill_sched_u/8', 'kv_cache_if_u/7');
         safe_add_line(mdlName, 'prefill_sched_u/9', 'kv_cache_if_u/8');
         safe_add_line(mdlName, 'prefill_sched_u/12', 'kv_cache_if_u/9');
+        safe_add_line(mdlName, 'prefill_sched_u/8', 'kv_cache_if_u/10');
+        safe_add_line(mdlName, 'prefill_sched_u/9', 'kv_cache_if_u/11');
         force_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
         force_add_line(mdlName, 'prefill_sched_u/2', 'attention_u/4');
         force_add_line(mdlName, 'prefill_sched_u/3', 'attention_u/5');
@@ -325,7 +327,6 @@ function ensure_memory_subsystems(mdlName)
     ensure_subsystem(mdlName, 'kv_addr_gen_u', [700, 600, 920, 680]);
     ensure_subsystem(mdlName, 'weight_addr_map_u', [700, 720, 980, 820]);
     ensure_subsystem(mdlName, 'axi_weight_rd_u', [980, 820, 1220, 900]);
-    ensure_subsystem(mdlName, 'w_req_bridge_u', [1230, 820, 1500, 900]);
 end
 
 function remove_legacy_weight_ports(mdlName)
@@ -349,6 +350,13 @@ end
 
 function remove_top_level_weight_req_merge_blocks(mdlName)
     names = {'rms_req_sel', 'qkv_req_sel', 'attn_req_sel', 'ffn_req_sel', 'w_req_bc'};
+    for i = 1:numel(names)
+        remove_top_block_if_exists(mdlName, names{i});
+    end
+end
+
+function remove_unused_top_level_blocks(mdlName)
+    names = {'w_req_bridge_u', 'w_rsp_demux', 'w_req_v1_u8', 'w_req_v2_u8', 'clk', 'rst_n'};
     for i = 1:numel(names)
         remove_top_block_if_exists(mdlName, names{i});
     end
@@ -705,6 +713,8 @@ function configure_kv_cache_if(subPath)
     add_block('simulink/Sources/In1', [subPath '/kv_bank_count'], 'Position', [20, 300, 50, 314]);
     add_block('simulink/Sources/In1', [subPath '/tile_seq'], 'Position', [20, 330, 50, 344]);
     add_block('simulink/Sources/In1', [subPath '/active_seq_len'], 'Position', [20, 360, 50, 374]);
+    add_block('simulink/Sources/In1', [subPath '/tile_k'], 'Position', [20, 390, 50, 404]);
+    add_block('simulink/Sources/In1', [subPath '/tile_out'], 'Position', [20, 420, 50, 434]);
     add_block('simulink/Math Operations/Gain', [subPath '/q_stream_gain'], ...
         'Gain', '0.6', 'Position', [90, 20, 130, 45]);
     add_block('simulink/Math Operations/Gain', [subPath '/k_cache_gain'], ...
@@ -715,6 +725,12 @@ function configure_kv_cache_if(subPath)
         'Inputs', '++', 'Position', [90, 285, 125, 315]);
     add_block('simulink/Math Operations/Add', [subPath '/seq_window_sum'], ...
         'Inputs', '++', 'Position', [90, 335, 125, 365]);
+    add_block('simulink/Math Operations/Product', [subPath '/bank_addr_base'], ...
+        'Inputs', '**', 'Position', [150, 335, 185, 365]);
+    add_block('simulink/Math Operations/Add', [subPath '/bank_addr'], ...
+        'Inputs', '++', 'Position', [220, 335, 255, 365]);
+    add_block('simulink/Math Operations/Product', [subPath '/bank_sel'], ...
+        'Inputs', '**', 'Position', [150, 285, 185, 315]);
     add_block('simulink/Signal Routing/Switch', [subPath '/k_cache_sel'], ...
         'Threshold', '0.5', 'Position', [190, 45, 240, 95]);
     add_block('simulink/Signal Routing/Switch', [subPath '/v_cache_sel'], ...
@@ -732,6 +748,9 @@ function configure_kv_cache_if(subPath)
     add_block('simulink/Sinks/Out1', [subPath '/kv_to_attn'], 'Position', [500, 85, 530, 99]);
     add_block('simulink/Sinks/Out1', [subPath '/kv_write_data'], 'Position', [500, 145, 530, 159]);
     add_block('simulink/Sinks/Out1', [subPath '/kv_write_valid'], 'Position', [500, 185, 530, 199]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_bank_addr'], 'Position', [500, 225, 530, 239]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_bank_sel'], 'Position', [500, 265, 530, 279]);
+    add_block('simulink/Sinks/Out1', [subPath '/kv_bank_wr_en'], 'Position', [500, 305, 530, 319]);
 
     safe_add_line(subPath, 'qkv_new/1', 'q_stream_gain/1');
     safe_add_line(subPath, 'qkv_new/1', 'k_cache_gain/1');
@@ -740,6 +759,12 @@ function configure_kv_cache_if(subPath)
     safe_add_line(subPath, 'kv_bank_count/1', 'bank_sum/2');
     safe_add_line(subPath, 'tile_seq/1', 'seq_window_sum/1');
     safe_add_line(subPath, 'active_seq_len/1', 'seq_window_sum/2');
+    safe_add_line(subPath, 'seq_window_sum/1', 'bank_addr_base/1');
+    safe_add_line(subPath, 'tile_k/1', 'bank_addr_base/2');
+    safe_add_line(subPath, 'bank_addr_base/1', 'bank_addr/1');
+    safe_add_line(subPath, 'tile_out/1', 'bank_addr/2');
+    safe_add_line(subPath, 'bank_sum/1', 'bank_sel/1');
+    safe_add_line(subPath, 'tile_out/1', 'bank_sel/2');
     safe_add_line(subPath, 'k_cache_gain/1', 'k_cache_sel/1');
     safe_add_line(subPath, 'mode_decode/1', 'k_cache_sel/2');
     safe_add_line(subPath, 'kv_hist/1', 'k_cache_sel/3');
@@ -761,6 +786,9 @@ function configure_kv_cache_if(subPath)
     safe_add_line(subPath, 'attn_compose/1', 'kv_to_attn/1');
     safe_add_line(subPath, 'kv_write_banked/1', 'kv_write_data/1');
     safe_add_line(subPath, 'kv_seq_gate/1', 'kv_write_valid/1');
+    safe_add_line(subPath, 'bank_addr/1', 'kv_bank_addr/1');
+    safe_add_line(subPath, 'bank_sel/1', 'kv_bank_sel/1');
+    safe_add_line(subPath, 'kv_seq_gate/1', 'kv_bank_wr_en/1');
 end
 
 function configure_prefill_scheduler(subPath, cfg)
@@ -1029,51 +1057,6 @@ function configure_axi_weight_rd(subPath)
     end
 end
 
-function configure_weight_req_bridge(subPath)
-    clear_subsystem_contents(subPath);
-
-    add_block('simulink/Sources/In1', [subPath '/rms_req_bus'], 'Position', [20, 35, 50, 49], ...
-        'OutDataTypeStr', 'Bus: WeightReqRmsBus');
-    add_block('simulink/Sources/In1', [subPath '/qkv_req_bus'], 'Position', [20, 85, 50, 99], ...
-        'OutDataTypeStr', 'Bus: WeightReqQkvBus');
-    add_block('simulink/Sources/In1', [subPath '/attn_req_bus'], 'Position', [20, 135, 50, 149], ...
-        'OutDataTypeStr', 'Bus: WeightReqAttnBus');
-    add_block('simulink/Sources/In1', [subPath '/ffn_req_bus'], 'Position', [20, 185, 50, 199], ...
-        'OutDataTypeStr', 'Bus: WeightReqFfnBus');
-    add_or_reset_bus_selector(subPath, 'rms_req_sel', 'gamma_addr,gamma_valid', [90, 20, 140, 70]);
-    add_or_reset_bus_selector(subPath, 'qkv_req_sel', ...
-        'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', [90, 70, 140, 170]);
-    add_or_reset_bus_selector(subPath, 'attn_req_sel', ...
-        'attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid', [90, 170, 140, 270]);
-    add_or_reset_bus_selector(subPath, 'ffn_req_sel', ...
-        'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid', [90, 270, 140, 340]);
-    add_or_reset_bus_creator(subPath, 'w_req_bc', 18, [190, 35, 230, 335], 'WeightReqBus');
-    try
-        set_param([subPath '/w_req_bc'], 'InputSignalNames', ...
-            'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
-    catch
-    end
-    add_block('simulink/Sinks/Out1', [subPath '/req_bus'], 'Position', [280, 180, 310, 194], ...
-        'OutDataTypeStr', 'Bus: WeightReqBus');
-
-    safe_add_line(subPath, 'rms_req_bus/1', 'rms_req_sel/1');
-    safe_add_line(subPath, 'qkv_req_bus/1', 'qkv_req_sel/1');
-    safe_add_line(subPath, 'attn_req_bus/1', 'attn_req_sel/1');
-    safe_add_line(subPath, 'ffn_req_bus/1', 'ffn_req_sel/1');
-
-    for idx = 1:2
-        safe_add_line(subPath, ['rms_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx)]);
-    end
-    for idx = 1:6
-        safe_add_line(subPath, ['qkv_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 2)]);
-        safe_add_line(subPath, ['attn_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 8)]);
-    end
-    for idx = 1:4
-        safe_add_line(subPath, ['ffn_req_sel/' num2str(idx)], ['w_req_bc/' num2str(idx + 14)]);
-    end
-    safe_add_line(subPath, 'w_req_bc/1', 'req_bus/1');
-end
-
 function add_or_reset_bus_creator(sys, name, n, pos, busObj)
     p = [sys '/' name];
     if isempty(find_system(sys, 'SearchDepth', 1, 'Name', name))
@@ -1308,6 +1291,12 @@ function configure_attention(subPath)
         'Inputs', '**', 'Position', [210, 45, 245, 85]);
     add_block('simulink/Math Operations/Abs', [subPath '/score_abs'], ...
         'Position', [280, 45, 315, 75]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/row_max_z'], ...
+        'InitialCondition', '0', 'Position', [350, 15, 380, 35]);
+    add_block('simulink/Math Operations/MinMax', [subPath '/row_max'], ...
+        'Function', 'max', 'Inputs', '2', 'Position', [410, 10, 450, 40]);
+    add_block('simulink/Math Operations/Add', [subPath '/score_shift'], ...
+        'Inputs', '+-', 'Position', [470, 10, 505, 40]);
     add_block('simulink/Math Operations/Add', [subPath '/array_dim_sum'], ...
         'Inputs', '++', 'Position', [180, 295, 215, 325]);
     add_block('simulink/Math Operations/Add', [subPath '/head_group_bias'], ...
@@ -1320,6 +1309,10 @@ function configure_attention(subPath)
         'Inputs', '**', 'Position', [420, 30, 455, 60]);
     add_block('simulink/Math Operations/Add', [subPath '/softmax_online_den'], ...
         'Inputs', '++', 'Position', [420, 70, 455, 100]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/row_sum_z'], ...
+        'InitialCondition', '0', 'Position', [470, 70, 500, 90]);
+    add_block('simulink/Math Operations/Add', [subPath '/row_sum_accum'], ...
+        'Inputs', '++', 'Position', [520, 70, 555, 100]);
     add_block('simulink/Math Operations/Divide', [subPath '/score_norm'], ...
         'Position', [490, 50, 525, 100]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/softmax_stage_z'], ...
@@ -1363,14 +1356,22 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
     safe_add_line(subPath, kOut, 'score_mul/2');
     safe_add_line(subPath, 'score_mul/1', 'score_abs/1');
+    safe_add_line(subPath, 'score_abs/1', 'row_max/1');
+    safe_add_line(subPath, 'row_max_z/1', 'row_max/2');
+    safe_add_line(subPath, 'row_max/1', 'row_max_z/1');
+    safe_add_line(subPath, 'score_abs/1', 'score_shift/1');
+    safe_add_line(subPath, 'row_max/1', 'score_shift/2');
     safe_add_line(subPath, 'score_abs/1', 'score_den/1');
     safe_add_line(subPath, 'head_group_norm/1', 'score_den/2');
-    safe_add_line(subPath, 'score_abs/1', 'softmax_gate/1');
+    safe_add_line(subPath, 'score_shift/1', 'softmax_gate/1');
     safe_add_line(subPath, 'online_softmax_en/1', 'softmax_gate/2');
     safe_add_line(subPath, 'softmax_gate/1', 'softmax_online_den/1');
     safe_add_line(subPath, 'score_den/1', 'softmax_online_den/2');
+    safe_add_line(subPath, 'row_sum_z/1', 'row_sum_accum/1');
+    safe_add_line(subPath, 'softmax_online_den/1', 'row_sum_accum/2');
+    safe_add_line(subPath, 'row_sum_accum/1', 'row_sum_z/1');
     safe_add_line(subPath, 'score_mul/1', 'score_norm/1');
-    safe_add_line(subPath, 'softmax_online_den/1', 'score_norm/2');
+    safe_add_line(subPath, 'row_sum_accum/1', 'score_norm/2');
     safe_add_line(subPath, 'score_norm/1', 'softmax_stage_z/1');
     safe_add_line(subPath, 'softmax_stage_z/1', 'scorev_gate/1');
     safe_add_line(subPath, 'scorev_enable/1', 'scorev_gate/2');
@@ -1681,7 +1682,7 @@ function arrange_model_systems(mdlName, stageProfile)
 
     if stageProfile == "stage2_memory_ready"
         targets = [targets, { ...
-            [mdlName '/prefill_sched_u'], [mdlName '/w_req_bridge_u'], ...
+            [mdlName '/prefill_sched_u'], ...
             [mdlName '/axi_weight_rd_u'], [mdlName '/weight_addr_map_u'], ...
             [mdlName '/axi_master_rd_u'], [mdlName '/axi_master_wr_u'], ...
             [mdlName '/kv_addr_gen_u'], [mdlName '/ddr_model_if_u']}];
