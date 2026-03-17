@@ -49,7 +49,14 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
     require_edge(mdlName, 'prefill_sched_u/8', 'kv_cache_if_u/7');
     require_edge(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
     require_edge(mdlName, 'rms_req_sel/1', 'axi_weight_rd_u/1');
-    require_edge(mdlName, 'axi_weight_rd_u/1', 'rmsnorm_u/3');
+    weightRspSrc = 'axi_weight_rd_u/1';
+    if ~isempty(find_system(mdlName, 'SearchDepth', 1, 'BlockType', 'Inport', 'Name', 'w_rd_rsp_bus'))
+        weightRspSrc = 'w_rd_rsp_bus/1';
+    end
+    require_edge(mdlName, weightRspSrc, 'rmsnorm_u/3');
+    require_edge(mdlName, weightRspSrc, 'qkv_proj_u/2');
+    require_edge(mdlName, weightRspSrc, 'attention_u/2');
+    require_edge(mdlName, weightRspSrc, 'ffn_swiglu_u/2');
 
     % First-load + cache-hit semantics are enforced by req_needed = NOT(sram_valid)
     % and mux select by sram_valid inside each stream helper.
@@ -68,7 +75,7 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
     fprintf('Stage2 weight path assertions PASS\n');
 end
 
-function require_blocks(mdlName, paths)
+function require_blocks(~, paths)
     for i = 1:numel(paths)
         if getSimulinkBlockHandle(paths{i}) == -1
             error('run_stage2_weight_path_assertions:MissingBlock', 'Missing block: %s', paths{i});

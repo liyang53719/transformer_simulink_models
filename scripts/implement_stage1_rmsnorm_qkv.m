@@ -9,7 +9,8 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     end
 
     stageProfile = lower(string(getFieldOr(options, 'StageProfile', 'stage1')));
-    useExternalWeightRsp = logical(getFieldOr(options, 'UseExternalWeightRsp', false));
+    defaultExternalWeightRsp = (stageProfile == "stage2_memory_ready");
+    useExternalWeightRsp = logical(getFieldOr(options, 'UseExternalWeightRsp', defaultExternalWeightRsp));
     prefillCfg = resolve_prefill_schedule_config(rootDir, options);
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
