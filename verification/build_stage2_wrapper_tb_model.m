@@ -164,24 +164,56 @@ function configure_soc_style_ddr_ref(subPath)
         add_block('simulink/Sinks/Out1', [subPath '/' outNames{i}], 'Position', [430, 40 + 45 * i, 460, 54 + 45 * i]);
     end
 
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/Input Read Memory'], ...
+        'Position', [110, 70, 290, 230]);
+    add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/Output Write Memory'], ...
+        'Position', [110, 260, 290, 430]);
+
+    configure_input_read_memory([subPath '/Input Read Memory']);
+    configure_output_write_memory([subPath '/Output Write Memory']);
+
+    add_line(subPath, 'rd_addr/1', 'Input Read Memory/1', 'autorouting', 'on');
+    add_line(subPath, 'rd_len/1', 'Input Read Memory/2', 'autorouting', 'on');
+    add_line(subPath, 'rd_valid/1', 'Input Read Memory/3', 'autorouting', 'on');
+    add_line(subPath, 'Input Read Memory/1', 'rd_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'Input Read Memory/2', 'rd_data/1', 'autorouting', 'on');
+    add_line(subPath, 'Input Read Memory/3', 'rd_data_valid/1', 'autorouting', 'on');
+
+    add_line(subPath, 'wr_addr/1', 'Output Write Memory/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_len/1', 'Output Write Memory/2', 'autorouting', 'on');
+    add_line(subPath, 'wr_valid/1', 'Output Write Memory/3', 'autorouting', 'on');
+    add_line(subPath, 'wr_data/1', 'Output Write Memory/4', 'autorouting', 'on');
+    add_line(subPath, 'wr_en/1', 'Output Write Memory/5', 'autorouting', 'on');
+    add_line(subPath, 'Output Write Memory/1', 'wr_ready/1', 'autorouting', 'on');
+end
+
+function configure_input_read_memory(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/rd_addr'], 'Position', [20, 45, 50, 59]);
+    add_block('simulink/Sources/In1', [subPath '/rd_len'], 'Position', [20, 85, 50, 99]);
+    add_block('simulink/Sources/In1', [subPath '/rd_valid'], 'Position', [20, 125, 50, 139]);
     add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
-        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [90, 20, 130, 40]);
-    add_block('simulink/Sources/Constant', [subPath '/latency_seed'], 'Value', '7', 'Position', [90, 60, 130, 80]);
+        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [70, 15, 110, 35]);
+    add_block('simulink/Sources/Constant', [subPath '/latency_seed'], ...
+        'Value', '7', 'Position', [70, 45, 110, 65]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/rd_fire'], ...
-        'Operator', 'AND', 'Position', [150, 120, 180, 150]);
+        'Operator', 'AND', 'Position', [120, 120, 150, 145]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/rd_fire_z'], ...
-        'InitialCondition', '0', 'Position', [210, 120, 240, 150]);
+        'InitialCondition', '0', 'Position', [170, 120, 200, 145]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/rd_addr_z'], ...
-        'InitialCondition', '0', 'Position', [210, 75, 240, 105]);
+        'InitialCondition', '0', 'Position', [170, 40, 200, 65]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/rd_len_z'], ...
-        'InitialCondition', '0', 'Position', [210, 165, 240, 195]);
+        'InitialCondition', '0', 'Position', [170, 80, 200, 105]);
     add_block('simulink/Math Operations/Add', [subPath '/rd_addr_len_sum'], ...
-        'Inputs', '++', 'Position', [280, 100, 315, 130]);
+        'Inputs', '++', 'Position', [220, 55, 255, 85]);
     add_block('simulink/Math Operations/Add', [subPath '/rd_data_pack'], ...
-        'Inputs', '++', 'Position', [340, 100, 375, 130]);
+        'Inputs', '++', 'Position', [275, 55, 310, 85]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_ready'], 'Position', [330, 20, 360, 34]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'Position', [330, 60, 360, 74]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data_valid'], 'Position', [330, 120, 360, 134]);
 
     add_line(subPath, 'ready_const/1', 'rd_ready/1', 'autorouting', 'on');
-    add_line(subPath, 'ready_const/1', 'wr_ready/1', 'autorouting', 'on');
     add_line(subPath, 'rd_valid/1', 'rd_fire/1', 'autorouting', 'on');
     add_line(subPath, 'ready_const/1', 'rd_fire/2', 'autorouting', 'on');
     add_line(subPath, 'rd_fire/1', 'rd_fire_z/1', 'autorouting', 'on');
@@ -193,6 +225,35 @@ function configure_soc_style_ddr_ref(subPath)
     add_line(subPath, 'latency_seed/1', 'rd_data_pack/2', 'autorouting', 'on');
     add_line(subPath, 'rd_data_pack/1', 'rd_data/1', 'autorouting', 'on');
     add_line(subPath, 'rd_fire_z/1', 'rd_data_valid/1', 'autorouting', 'on');
+end
+
+function configure_output_write_memory(subPath)
+    Simulink.SubSystem.deleteContents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/wr_addr'], 'Position', [20, 35, 50, 49]);
+    add_block('simulink/Sources/In1', [subPath '/wr_len'], 'Position', [20, 70, 50, 84]);
+    add_block('simulink/Sources/In1', [subPath '/wr_valid'], 'Position', [20, 105, 50, 119]);
+    add_block('simulink/Sources/In1', [subPath '/wr_data'], 'Position', [20, 140, 50, 154]);
+    add_block('simulink/Sources/In1', [subPath '/wr_en'], 'Position', [20, 175, 50, 189]);
+    add_block('simulink/Sources/Constant', [subPath '/ready_const'], ...
+        'Value', 'true', 'OutDataTypeStr', 'boolean', 'Position', [90, 20, 130, 40]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_fire'], ...
+        'Operator', 'AND', 'Position', [150, 95, 180, 120]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/wr_commit'], ...
+        'Operator', 'AND', 'Position', [210, 115, 240, 140]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_addr'], 'Position', [260, 30, 280, 50]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_len'], 'Position', [260, 65, 280, 85]);
+    add_block('simulink/Sinks/Terminator', [subPath '/term_wr_data'], 'Position', [260, 145, 280, 165]);
+    add_block('simulink/Sinks/Out1', [subPath '/wr_ready'], 'Position', [310, 120, 340, 134]);
+
+    add_line(subPath, 'ready_const/1', 'wr_fire/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_valid/1', 'wr_fire/2', 'autorouting', 'on');
+    add_line(subPath, 'wr_fire/1', 'wr_commit/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_en/1', 'wr_commit/2', 'autorouting', 'on');
+    add_line(subPath, 'ready_const/1', 'wr_ready/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_addr/1', 'term_wr_addr/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_len/1', 'term_wr_len/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_data/1', 'term_wr_data/1', 'autorouting', 'on');
 end
 
 function ports = get_root_ports(mdlName, blockType)
