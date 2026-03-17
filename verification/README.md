@@ -14,7 +14,7 @@
 - `run_stage2_kv_cache_boundary_smoke`：验证 `kv_cache_if_u` 的边界端口集合是否完整，并检查它与 `qkv_proj_u`、`axi_master_rd_u`、`axi_master_wr_u` 以及顶层 `kv_mem_*` 边界之间的连通性。
 - `run_stage2_top_kv_io_tb_smoke`：最小 TB 就绪性检查。当前它会先审计 `qwen2_block_top` 根输入类型；若存在 `sfix*` 等不适合直接用 workspace external input 驱动的端口，会返回 `tb_ready=false` 和阻塞项，而不是纳入 fast smoke。
 - `run_stage2_wrapper_tb_smoke`：专用 wrapper TB smoke。它不再依赖 root external input，而是给 DUT 外挂 typed Constant source，并加一个 SoC 风格的 DDR responder 子系统去接 `kv_mem_*` 事务边界；当前 wrapper 同时显式放置 `weight_ref_u`，把 `w_rd_req_bus -> w_rd_rsp_bus` 的参数返回链路接回 DUT，用于验证 `qwen2_block_top` 在 wrapper 中是否能真正产生 KV 读写活动并消费外部参数响应。当前默认配置下已可 PASS。
-- `run_stage2_attention_ddr_integration_smoke`：主线联调 smoke。复用同一个 wrapper TB，同时检查 attention 权重请求有效位是否发出、wrapper 外部 `weight_ref_u` 是否按请求地址返回带页签名的 attention 权重响应数据、DDR 读响应是否返回、`out_hidden` 是否产生非零结果，以及 KV 写回是否落到外层 DDR 通路上，用来覆盖“attention 细节 + DDR 联调”这条主线。
+- `run_stage2_attention_ddr_integration_smoke`：主线联调 smoke。复用同一个 wrapper TB，同时检查 attention 权重请求有效位是否发出、attention 请求地址与 `weight_ref_u` 返回的带页签名响应数据是否精确匹配、DDR 读响应是否返回、`out_hidden` 是否产生非零结果，以及 KV 写回是否落到外层 DDR 通路上，用来覆盖“attention 细节 + DDR 联调”这条主线。
 - 可视化外层 TB 模型：`simulink/models/qwen2_block_top_wrapper_tb.slx`。这个模型把 `qwen2_block_top` 作为 DUT，并在外层显式放置 SoC 风格的 `ddr_ref_u` responder；`ddr_ref_u` 当前已拆成可见的 `Input Read Memory` / `Output Write Memory` 两段结构，且内部进一步细化为 `AXI4Master* BusCreator / Controller / BusSelector` 风格的分层组织，接近 `simulink/ref/soc_image_rotation_fpga.slx` 的“DUT + DDR 环境”布局。
 - `run_stage2_axi_rd_functional_smoke`：以确定性向量检查 `axi_master_rd_u` 行为语义（`avalid` 保持到握手、突发计数完成后清除活动状态）。
 - `run_stage2_axi_wr_functional_smoke`：以确定性向量检查 `axi_master_wr_u` 行为语义（`wr_valid` 发起保持到写完成、`request_next_line` 仅在写完成时脉冲）。

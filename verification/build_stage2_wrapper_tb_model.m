@@ -194,15 +194,21 @@ function connect_dut_outputs(tbName, outports)
     if ~isempty(wReqSrc)
         add_line(tbName, wReqSrc, 'weight_ref_u/1', 'autorouting', 'on');
         add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_sel'], ...
-            'OutputSignals', 'attn_q_valid,attn_k_valid,attn_v_valid', ...
-            'Position', [820, 560, 870, 640]);
+            'OutputSignals', 'attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid', ...
+            'Position', [820, 560, 875, 700]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_req_addr'], 'Position', [980, 560, 1010, 574]);
         add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_req_valid'], 'Position', [980, 200, 1010, 214]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_req_addr'], 'Position', [980, 600, 1010, 614]);
         add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_req_valid'], 'Position', [980, 240, 1010, 254]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_req_addr'], 'Position', [980, 640, 1010, 654]);
         add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_req_valid'], 'Position', [980, 280, 1010, 294]);
         add_line(tbName, wReqSrc, 'tb_w_req_sel/1', 'autorouting', 'on');
-        add_line(tbName, 'tb_w_req_sel/1', 'tb_attn_q_req_valid/1', 'autorouting', 'on');
-        add_line(tbName, 'tb_w_req_sel/2', 'tb_attn_k_req_valid/1', 'autorouting', 'on');
-        add_line(tbName, 'tb_w_req_sel/3', 'tb_attn_v_req_valid/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/1', 'tb_attn_q_req_addr/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/2', 'tb_attn_q_req_valid/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/3', 'tb_attn_k_req_addr/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/4', 'tb_attn_k_req_valid/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/5', 'tb_attn_v_req_addr/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/6', 'tb_attn_v_req_valid/1', 'autorouting', 'on');
     end
 end
 
