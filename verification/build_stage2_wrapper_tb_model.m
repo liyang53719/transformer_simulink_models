@@ -122,13 +122,18 @@ function connect_dut_outputs(tbName, outports)
         {'kv_mem_rd_addr', 'kv_mem_rd_len', 'kv_mem_rd_valid', 'kv_mem_wr_addr', 'kv_mem_wr_len', 'kv_mem_wr_valid', 'kv_cache_wr_data', 'kv_cache_wr_en'}, ...
         {'ddr_ref_u/1', 'ddr_ref_u/2', 'ddr_ref_u/3', 'ddr_ref_u/4', 'ddr_ref_u/5', 'ddr_ref_u/6', 'ddr_ref_u/7', 'ddr_ref_u/8'});
 
-    observed = {'done', 'kv_mem_rd_addr', 'kv_mem_rd_valid', 'kv_mem_wr_addr', 'kv_mem_wr_valid', ...
+    observed = {'done', 'out_hidden', 'kv_mem_rd_addr', 'kv_mem_rd_valid', 'kv_mem_wr_addr', 'kv_mem_wr_valid', ...
         'kv_cache_wr_data', 'kv_cache_wr_en'};
     y = 80;
     obsCount = 0;
+    wReqSrc = '';
     for i = 1:numel(outports)
         name = char(outports(i).name);
         src = ['dut/' num2str(outports(i).port)];
+
+        if strcmp(name, 'w_rd_req_bus')
+            wReqSrc = src;
+        end
 
         if isKey(ddrSinkMap, name)
             add_line(tbName, src, ddrSinkMap(name), 'autorouting', 'on');
@@ -149,6 +154,19 @@ function connect_dut_outputs(tbName, outports)
     add_block('simulink/Sinks/Out1', [tbName '/tb_rd_rsp_valid'], 'Position', [980, 160, 1010, 174]);
     add_line(tbName, 'ddr_ref_u/3', 'tb_rd_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'ddr_ref_u/4', 'tb_rd_rsp_valid/1', 'autorouting', 'on');
+
+    if ~isempty(wReqSrc)
+        add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_sel'], ...
+            'OutputSignals', 'attn_q_valid,attn_k_valid,attn_v_valid', ...
+            'Position', [820, 560, 870, 640]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_req_valid'], 'Position', [980, 200, 1010, 214]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_req_valid'], 'Position', [980, 240, 1010, 254]);
+        add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_req_valid'], 'Position', [980, 280, 1010, 294]);
+        add_line(tbName, wReqSrc, 'tb_w_req_sel/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/1', 'tb_attn_q_req_valid/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/2', 'tb_attn_k_req_valid/1', 'autorouting', 'on');
+        add_line(tbName, 'tb_w_req_sel/3', 'tb_attn_v_req_valid/1', 'autorouting', 'on');
+    end
 end
 
 function configure_soc_style_ddr_ref(subPath)

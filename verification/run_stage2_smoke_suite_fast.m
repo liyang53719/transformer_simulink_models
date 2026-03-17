@@ -22,6 +22,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rPrefillAttention = run_stage2_prefill_attention_functional_smoke(rootDir, struct('BuildModel', false));
     rWrapperTb = run_stage2_wrapper_tb_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
+    rAttentionDdr = run_stage2_attention_ddr_integration_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
 
@@ -34,11 +35,12 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_kv_boundary = rKvBoundary;
     summary.default_prefill_attention = rPrefillAttention;
     summary.default_wrapper_tb = rWrapperTb;
+    summary.default_attention_ddr = rAttentionDdr;
     summary.default_axi_rd = rAxiRd;
     summary.default_axi_wr = rAxiWr;
     summary.variant_decode = rDecodeVariant;
     summary.pass = rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
-        rPrefillAttention.pass && rWrapperTb.pass && rAxiRd.pass && ...
+        rPrefillAttention.pass && rWrapperTb.pass && rAttentionDdr.pass && rAxiRd.pass && ...
         rAxiWr.pass && rDecodeVariant.pass;
 
     if summary.pass
