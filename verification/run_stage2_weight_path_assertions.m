@@ -45,6 +45,8 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
     require_edge(mdlName, 'ffn_addr_bc/1', 'ffn_swiglu_u/3');
     require_edge(mdlName, 'prefill_sched_u/1', 'kv_cache_if_u/4');
     require_edge(mdlName, 'prefill_sched_u/2', 'kv_cache_if_u/5');
+    require_edge(mdlName, 'prefill_sched_u/6', 'kv_cache_if_u/6');
+    require_edge(mdlName, 'prefill_sched_u/8', 'kv_cache_if_u/7');
     require_edge(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
     require_edge(mdlName, 'rms_req_sel/1', 'axi_weight_rd_u/1');
     require_edge(mdlName, 'axi_weight_rd_u/1', 'rmsnorm_u/3');

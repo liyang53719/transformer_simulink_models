@@ -13,5 +13,7 @@ function cfg = prefill_attention_schedule_32x32()
     cfg.q_heads_per_kv = 6;
     cfg.kv_phase_first = 1;
     cfg.score_scale = 1;
+    cfg.online_softmax_en = 1;
+    cfg.scorev_enable = 1;
     cfg.phase_order = {'kv_cache_fill', 'q_head_stream', 'score_softmax', 'value_reduce'};
 end
