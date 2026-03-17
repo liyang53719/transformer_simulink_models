@@ -173,13 +173,23 @@ function connect_dut_outputs(tbName, outports)
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_sel'], ...
         'OutputSignals', 'attn_q_valid,attn_k_valid,attn_v_valid', ...
         'Position', [820, 655, 870, 735]);
+    add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_data_sel'], ...
+        'OutputSignals', 'attn_q_data,attn_k_data,attn_v_data', ...
+        'Position', [820, 745, 870, 825]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_rsp_valid'], 'Position', [980, 320, 1010, 334]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_rsp_valid'], 'Position', [980, 360, 1010, 374]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_rsp_valid'], 'Position', [980, 400, 1010, 414]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_q_rsp_data'], 'Position', [980, 440, 1010, 454]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_k_rsp_data'], 'Position', [980, 480, 1010, 494]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_attn_v_rsp_data'], 'Position', [980, 520, 1010, 534]);
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_sel/1', 'autorouting', 'on');
+    add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_data_sel/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_sel/1', 'tb_attn_q_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_sel/2', 'tb_attn_k_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_sel/3', 'tb_attn_v_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_data_sel/1', 'tb_attn_q_rsp_data/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_data_sel/2', 'tb_attn_k_rsp_data/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_data_sel/3', 'tb_attn_v_rsp_data/1', 'autorouting', 'on');
 
     if ~isempty(wReqSrc)
         add_line(tbName, wReqSrc, 'weight_ref_u/1', 'autorouting', 'on');
@@ -254,7 +264,7 @@ function configure_weight_rsp_ref(subPath)
     add_line(subPath, 'req_bus/1', 'req_sel/1', 'autorouting', 'on');
     add_line(subPath, 'rsp_bc/1', 'rsp_bus/1', 'autorouting', 'on');
 
-    scaleVals = {'1.0','0.6','0.4','1.0','0.6','0.4','1.0','1.4','0.9'};
+    pageSignatures = {'0','8','16','24','32','40','48','56','64'};
     reqNames = { ...
         'gamma_addr', 'gamma_valid', ...
         'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
@@ -274,10 +284,12 @@ function configure_weight_rsp_ref(subPath)
             'InitialCondition', '0', 'Position', [270, baseY + 12, 300, baseY + 30]);
         add_block('simulink/Discrete/Unit Delay', [subPath '/addr_d2_' num2str(i)], ...
             'InitialCondition', '0', 'Position', [320, baseY + 12, 350, baseY + 30]);
-        add_block('simulink/Math Operations/Gain', [subPath '/data_gain_' num2str(i)], ...
-            'Gain', scaleVals{i}, 'Position', [380, baseY + 8, 420, baseY + 30]);
+        add_block('simulink/Sources/Constant', [subPath '/page_sig_' num2str(i)], ...
+            'Value', pageSignatures{i}, 'Position', [360, baseY + 2, 390, baseY + 18]);
+        add_block('simulink/Math Operations/Add', [subPath '/data_page_tag_' num2str(i)], ...
+            'Inputs', '++', 'Position', [400, baseY + 8, 435, baseY + 30]);
         add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/data_u8_' num2str(i)], ...
-            'OutDataTypeStr', 'uint8', 'Position', [445, baseY + 8, 475, baseY + 30]);
+            'OutDataTypeStr', 'uint8', 'Position', [455, baseY + 8, 485, baseY + 30]);
 
         reqAddrPort = 2 * i - 1;
         reqValidPort = 2 * i;
@@ -292,8 +304,9 @@ function configure_weight_rsp_ref(subPath)
         add_line(subPath, ['req_hs_' num2str(i) '/1'], ['val_d1_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['val_d1_' num2str(i) '/1'], ['val_d2_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['addr_d1_' num2str(i) '/1'], ['addr_d2_' num2str(i) '/1'], 'autorouting', 'on');
-        add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_gain_' num2str(i) '/1'], 'autorouting', 'on');
-        add_line(subPath, ['data_gain_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['page_sig_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, ['data_page_tag_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['data_u8_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)], 'autorouting', 'on');
         add_line(subPath, ['val_d2_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValidPort)], 'autorouting', 'on');
         set_line_name_by_dst_port(subPath, 'rsp_bc', rspDataPort, strrep(reqAddrName, '_addr', '_data'));
@@ -644,11 +657,11 @@ function value = default_constant_for_name(name)
         case 'stop_req'
             value = '0';
         case 'cfg_weight_num_heads'
-            value = '1';
+            value = '12';
         case 'cfg_weight_page_base'
-            value = '1';
+            value = '64';
         case 'cfg_weight_page_stride'
-            value = '1';
+            value = '8';
         case 'cfg_rope_theta_scale'
             value = '1';
         case 'cfg_rope_sin_mix_scale'

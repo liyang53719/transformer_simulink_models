@@ -33,6 +33,9 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
     attnQRsp = extract_signal(yout, 'tb_attn_q_rsp_valid');
     attnKRsp = extract_signal(yout, 'tb_attn_k_rsp_valid');
     attnVRsp = extract_signal(yout, 'tb_attn_v_rsp_valid');
+    attnQRspData = extract_signal(yout, 'tb_attn_q_rsp_data');
+    attnKRspData = extract_signal(yout, 'tb_attn_k_rsp_data');
+    attnVRspData = extract_signal(yout, 'tb_attn_v_rsp_data');
     rdRspValid = extract_signal(yout, 'tb_rd_rsp_valid');
     rdRspData = extract_signal(yout, 'tb_rd_rsp_data');
     outHidden = extract_signal(yout, 'out_hidden');
@@ -47,6 +50,10 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
     result.attn_q_rsp_seen = any(attnQRsp > 0.5);
     result.attn_k_rsp_seen = any(attnKRsp > 0.5);
     result.attn_v_rsp_seen = any(attnVRsp > 0.5);
+    result.attn_q_rsp_data_nonzero = any(abs(attnQRspData) > 0);
+    result.attn_k_rsp_data_nonzero = any(abs(attnKRspData) > 0);
+    result.attn_v_rsp_data_nonzero = any(abs(attnVRspData) > 0);
+    result.attn_rsp_data_distinct = are_distinct_peaks(attnQRspData, attnKRspData, attnVRspData);
     result.rd_rsp_valid_seen = any(rdRspValid > 0.5);
     result.rd_rsp_data_nonzero = any(abs(rdRspData) > 0);
     result.out_hidden_nonzero = any(abs(outHidden) > 0);
@@ -55,6 +62,8 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
     result.kv_wr_data_nonzero = any(abs(kvWrData) > 0);
     result.pass = result.attn_q_req_seen && result.attn_k_req_seen && result.attn_v_req_seen && ...
         result.attn_q_rsp_seen && result.attn_k_rsp_seen && result.attn_v_rsp_seen && ...
+        result.attn_q_rsp_data_nonzero && result.attn_k_rsp_data_nonzero && result.attn_v_rsp_data_nonzero && ...
+        result.attn_rsp_data_distinct && ...
         result.rd_rsp_valid_seen && result.rd_rsp_data_nonzero && ...
         result.out_hidden_nonzero && result.kv_wr_valid_seen && ...
         result.kv_wr_en_seen && result.kv_wr_data_nonzero;
@@ -64,9 +73,11 @@ function result = run_stage2_attention_ddr_integration_smoke(rootDir, options)
     else
         fprintf('Stage2 attention DDR integration smoke FAIL\n');
         fprintf(['  attn_q_req=%d attn_k_req=%d attn_v_req=%d attn_q_rsp=%d attn_k_rsp=%d attn_v_rsp=%d ' ...
-            'rd_rsp_valid=%d rd_rsp_data=%d out_hidden=%d kv_wr_valid=%d kv_wr_en=%d kv_wr_data=%d\n'], ...
+            'attn_q_data=%d attn_k_data=%d attn_v_data=%d attn_data_distinct=%d rd_rsp_valid=%d rd_rsp_data=%d ' ...
+            'out_hidden=%d kv_wr_valid=%d kv_wr_en=%d kv_wr_data=%d\n'], ...
             result.attn_q_req_seen, result.attn_k_req_seen, result.attn_v_req_seen, ...
             result.attn_q_rsp_seen, result.attn_k_rsp_seen, result.attn_v_rsp_seen, ...
+            result.attn_q_rsp_data_nonzero, result.attn_k_rsp_data_nonzero, result.attn_v_rsp_data_nonzero, result.attn_rsp_data_distinct, ...
             result.rd_rsp_valid_seen, result.rd_rsp_data_nonzero, ...
             result.out_hidden_nonzero, result.kv_wr_valid_seen, ...
             result.kv_wr_en_seen, result.kv_wr_data_nonzero);
@@ -108,4 +119,11 @@ function safe_close_models(tbName, mdlName)
     if bdIsLoaded(mdlName)
         close_system(mdlName, 0);
     end
+end
+
+function yes = are_distinct_peaks(sigA, sigB, sigC)
+    peakA = max(double(sigA(:)));
+    peakB = max(double(sigB(:)));
+    peakC = max(double(sigC(:)));
+    yes = (peakA ~= peakB) && (peakA ~= peakC) && (peakB ~= peakC);
 end

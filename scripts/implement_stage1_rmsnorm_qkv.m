@@ -337,9 +337,9 @@ function ensure_stage2_ports(mdlName, useExternalWeightRsp)
     set_root_inport_type(mdlName, 'kv_mem_wr_ready', 'boolean');
     set_root_inport_type(mdlName, 'cfg_rope_theta_scale', 'fixdt(1,17,15)');
     set_root_inport_type(mdlName, 'cfg_rope_sin_mix_scale', 'fixdt(1,17,15)');
-    set_root_inport_type(mdlName, 'cfg_weight_num_heads', 'fixdt(1,17,15)');
-    set_root_inport_type(mdlName, 'cfg_weight_page_base', 'fixdt(1,17,15)');
-    set_root_inport_type(mdlName, 'cfg_weight_page_stride', 'fixdt(1,17,15)');
+    set_root_inport_type(mdlName, 'cfg_weight_num_heads', 'fixdt(1,17,0)');
+    set_root_inport_type(mdlName, 'cfg_weight_page_base', 'fixdt(1,17,0)');
+    set_root_inport_type(mdlName, 'cfg_weight_page_stride', 'fixdt(1,17,0)');
     if useExternalWeightRsp
         set_root_inport_type(mdlName, 'w_rd_rsp_bus', 'Bus: WeightRspBus');
         try

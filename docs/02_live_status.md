@@ -21,8 +21,11 @@
 - wrapper 联调路径新增 attention+DDR 集成 smoke，已纳入 fast suite。
 - `qwen2_block_top` 支持 stage2 wrapper 模式下的外部 `w_rd_rsp_bus` 参数响应入口，用于把权重返回路径从内部 `axi_weight_rd_u` stub 迁移到 wrapper 外层 responder。
 - `build_stage2_wrapper_tb_model` 现在会在需要时自动重建为 external-weight-response 版本 DUT，并在 wrapper 中显式创建 `weight_ref_u`，把 `w_rd_req_bus -> weight_ref_u -> w_rd_rsp_bus` 接通。
+- `weight_ref_u` 进一步从简单缩放 stub 推进为“按请求地址返回带页签名的数据”，attention 联调 smoke 也开始检查外部响应数据非零且彼此可区分。
+- `cfg_weight_num_heads` / `cfg_weight_page_base` / `cfg_weight_page_stride` 根类型改为整数定点，避免 wrapper 配置真实分页参数时发生溢出。
 - 验证通过：`run_stage2_wrapper_tb_smoke`、`run_stage2_attention_ddr_integration_smoke`、`run_stage2_smoke_suite_fast`。
-- 下一步：继续推进 attention/weight path 的真实数据流细节，逐步减少内部 weight stub 依赖。
+- 验证通过：`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
+- 下一步：继续推进 attention/weight path 的真实数据流细节，逐步减少内部 weight stub 依赖，并让更多参数返回语义贴近真实页布局。
 
 ### 2026-03-14
 - 初始化本仓库 git 管理与远端 origin。
