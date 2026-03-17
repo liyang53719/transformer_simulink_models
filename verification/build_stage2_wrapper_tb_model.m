@@ -1,9 +1,9 @@
-function result = run_stage2_wrapper_tb_smoke(rootDir, options)
-%RUN_STAGE2_WRAPPER_TB_SMOKE Build and simulate a dedicated wrapper TB for qwen2_block_top.
-%   The wrapper follows the separated read/write DDR handshake style used by
-%   the SoC Toolbox reference flow around soc_image_rotation_fpga: the DUT is
-%   wrapped by typed stimulus sources and a lightweight DDR responder that
-%   accepts kv_mem_* requests and returns kv_cache_rd_* data with fixed latency.
+function info = build_stage2_wrapper_tb_model(rootDir, options)
+%BUILD_STAGE2_WRAPPER_TB_MODEL Build a visible wrapper TB around qwen2_block_top.
+%   This creates the same DUT + typed stimulus + SoC-style DDR responder
+%   structure used by the wrapper smoke. By default it builds a temporary
+%   model; with PersistModel=true it saves a persistent model under
+%   simulink/models/qwen2_block_top_wrapper_tb.slx.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -12,68 +12,82 @@ function result = run_stage2_wrapper_tb_smoke(rootDir, options)
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildDutModel = getFieldOr(options, 'BuildModel', true);
+    persistModel = getFieldOr(options, 'PersistModel', false);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
-    addpath(fullfile(rootDir, 'verification'));
-    modelInfo = build_stage2_wrapper_tb_model(rootDir, struct('BuildModel', buildModel, 'KvAddressConfig', kvCfg));
-    tbName = char(modelInfo.tbName);
-    mdlName = char(modelInfo.dutName);
-    cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
+    if buildDutModel
+        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
+    end
+
+    dutPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
+    load_system(dutPath);
+    [~, dutName] = fileparts(dutPath);
+    set_param(dutName, 'SimulationCommand', 'update');
+
+    if persistModel
+        tbName = 'qwen2_block_top_wrapper_tb';
+        tbPath = fullfile(rootDir, 'simulink', 'models', [tbName '.slx']);
+        if bdIsLoaded(tbName)
+            close_system(tbName, 0);
+        end
+        if exist(tbPath, 'file')
+            load_system(tbPath);
+            clear_model_contents(tbName);
+        else
+            new_system(tbName);
+        end
+    else
+        tbName = ['tmp_qwen2_wrapper_tb_' char(string(feature('getpid')))];
+        tbPath = "";
+        if bdIsLoaded(tbName)
+            close_system(tbName, 0);
+        end
+        new_system(tbName);
+    end
+
+    set_param(tbName, 'SolverType', 'Variable-step');
+    set_param(tbName, 'Solver', 'VariableStepDiscrete');
+
+    inports = get_root_ports(dutName, 'Inport');
+    outports = get_root_ports(dutName, 'Outport');
+
+    add_block('simulink/Ports & Subsystems/Model', [tbName '/dut'], ...
+        'ModelName', dutName, 'Position', [500, 180, 760, 520]);
+    configure_soc_style_ddr_ref([tbName '/ddr_ref_u']);
+
+    build_typed_sources(tbName, dutName, inports);
+    connect_dut_inputs(tbName, inports);
+    connect_dut_outputs(tbName, outports);
 
     try
-        simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
-            'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on');
-        yout = simOut.get('yout');
+        Simulink.BlockDiagram.arrangeSystem(tbName);
+    catch
+    end
 
-        kvRdValid = extract_signal(yout, 'kv_mem_rd_valid');
-        kvWrValid = extract_signal(yout, 'kv_mem_wr_valid');
-        kvRdAddr = extract_signal(yout, 'kv_mem_rd_addr');
-        kvWrAddr = extract_signal(yout, 'kv_mem_wr_addr');
-        kvWrData = extract_signal(yout, 'kv_cache_wr_data');
-        kvWrEn = extract_signal(yout, 'kv_cache_wr_en');
-        rdRspValid = extract_signal(yout, 'tb_rd_rsp_valid');
-        rdRspData = extract_signal(yout, 'tb_rd_rsp_data');
-        doneSig = extract_signal(yout, 'done');
+    if persistModel
+        save_system(tbName, tbPath, 'OverwriteIfChangedOnDisk', true);
+    end
 
-        result = struct();
-        result.tb_ready = true;
-        result.kv_rd_valid_seen = any(kvRdValid > 0.5);
-        result.kv_wr_valid_seen = any(kvWrValid > 0.5);
-        result.kv_rd_addr_nonzero = any(kvRdAddr > 0);
-        result.kv_wr_addr_nonzero = any(kvWrAddr > 0);
-        result.kv_wr_en_seen = any(kvWrEn > 0.5);
-        result.rd_rsp_valid_seen = any(rdRspValid > 0.5);
-        result.rd_rsp_data_nonzero = any(abs(rdRspData) > 0);
-        result.done_seen = any(doneSig > 0.5);
-        result.kv_wr_data_nonzero = any(abs(kvWrData) > 0);
-        result.pass = result.kv_rd_valid_seen && result.kv_wr_valid_seen && ...
-            result.kv_wr_addr_nonzero && ...
-            result.kv_wr_en_seen && result.rd_rsp_valid_seen && ...
-            result.rd_rsp_data_nonzero && result.kv_wr_data_nonzero;
+    info = struct();
+    info.tbName = tbName;
+    info.tbPath = string(tbPath);
+    info.dutName = dutName;
+    info.persistModel = persistModel;
+end
 
-        if result.pass
-            fprintf('Stage2 wrapper TB smoke PASS\n');
-        else
-            fprintf('Stage2 wrapper TB smoke FAIL\n');
-            fprintf('  kv_rd_valid_seen=%d kv_wr_valid_seen=%d rd_rsp_valid_seen=%d done_seen=%d\n', ...
-                result.kv_rd_valid_seen, result.kv_wr_valid_seen, result.rd_rsp_valid_seen, result.done_seen);
-            fprintf('  kv_rd_addr_nonzero=%d kv_wr_addr_nonzero=%d kv_wr_en_seen=%d kv_wr_data_nonzero=%d rd_rsp_data_nonzero=%d\n', ...
-                result.kv_rd_addr_nonzero, result.kv_wr_addr_nonzero, result.kv_wr_en_seen, ...
-                result.kv_wr_data_nonzero, result.rd_rsp_data_nonzero);
+function clear_model_contents(mdlName)
+    blocks = find_system(mdlName, 'SearchDepth', 1, 'Type', 'Block');
+    for i = 1:numel(blocks)
+        blk = blocks{i};
+        if strcmp(blk, mdlName)
+            continue;
         end
-    catch ME
-        if is_wrapper_tb_blocker(ME)
-            result = struct();
-            result.tb_ready = false;
-            result.pass = false;
-            result.reason = classify_wrapper_tb_blocker(ME);
-            fprintf('Stage2 wrapper TB smoke BLOCKED\n');
-            fprintf('  Reason: %s\n', result.reason);
-            return;
+        try
+            delete_block(blk);
+        catch
         end
-        rethrow(ME);
     end
 end
 
@@ -82,14 +96,13 @@ function build_typed_sources(tbName, mdlName, inports)
         name = char(inports(i).name);
         blk = [tbName '/src_' name];
         add_block('simulink/Sources/Constant', blk, 'Position', [40, 40 + 35 * i, 100, 60 + 35 * i]);
-
         compiledType = get_inport_compiled_type(mdlName, inports(i).name);
         set_param(blk, 'OutDataTypeStr', compiled_type_to_param_string(compiledType));
         set_param(blk, 'Value', default_constant_for_name(name));
     end
 end
 
-function connect_dut_inputs(tbName, ~, inports)
+function connect_dut_inputs(tbName, inports)
     ddrInMap = containers.Map( ...
         {'kv_cache_rd_data', 'kv_cache_rd_valid', 'kv_mem_rd_ready', 'kv_mem_wr_ready'}, ...
         {'ddr_ref_u/3', 'ddr_ref_u/4', 'ddr_ref_u/1', 'ddr_ref_u/2'});
@@ -286,89 +299,10 @@ function value = default_constant_for_name(name)
     end
 end
 
-function values = extract_signal(yout, name)
-    if isa(yout, 'Simulink.SimulationData.Dataset')
-        for i = 1:yout.numElements
-            elem = yout.getElement(i);
-            if strcmp(string(elem.Name), string(name))
-                values = extract_values(elem.Values);
-                return;
-            end
-            if dataset_element_matches_name(elem, name)
-                values = extract_values(elem.Values);
-                return;
-            end
-        end
-    end
-    error('run_stage2_wrapper_tb_smoke:MissingOutput', 'Missing output signal: %s', name);
-end
-
-function match = dataset_element_matches_name(elem, name)
-    match = false;
-    try
-        blockPathText = string(elem.BlockPath);
-        if any(endsWith(blockPathText, "/" + string(name)))
-            match = true;
-            return;
-        end
-    catch
-    end
-    try
-        blockPath = elem.BlockPath;
-        lastBlock = string(blockPath.getBlock(blockPath.getLength));
-        match = endsWith(lastBlock, "/" + string(name));
-    catch
-    end
-end
-
-function values = extract_values(ts)
-    if isa(ts, 'timeseries')
-        values = squeeze(ts.Data);
-    else
-        values = squeeze(ts);
-    end
-    values = double(values(:));
-end
-
 function out = getFieldOr(s, name, defaultValue)
     if isfield(s, name)
         out = s.(name);
     else
         out = defaultValue;
-    end
-end
-
-function yes = is_wrapper_tb_blocker(ME)
-    msg = string(getReport(ME, 'basic', 'hyperlinks', 'off'));
-    yes = contains(msg, 'w_rd_req_bus') || ...
-        contains(msg, 'bus data type should be specified') || ...
-        contains(msg, 'Sample time mismatch') || ...
-        contains(msg, 'Element name mismatch') || ...
-        contains(msg, 'duplicated names at input ports');
-end
-
-function reason = classify_wrapper_tb_blocker(ME)
-    msg = string(getReport(ME, 'basic', 'hyperlinks', 'off'));
-    if contains(msg, 'w_rd_req_bus') || contains(msg, 'bus data type should be specified')
-        reason = 'wrapper compile blocked by top-level w_rd_req_bus not being model-reference-safe as an explicit bus output';
-    elseif contains(msg, 'Sample time mismatch')
-        reason = 'wrapper compile blocked by mixed sample times on the top-level weight request bus path';
-    elseif contains(msg, 'duplicated names at input ports')
-        reason = 'wrapper compile blocked by duplicated signal names entering w_req_bc under wrapper/model-reference compilation';
-    elseif contains(msg, 'Element name mismatch')
-        reason = 'wrapper compile blocked by WeightRspBus element-name mismatch under wrapper/model-reference compilation';
-    else
-        reason = 'wrapper TB blocked by model-reference compile incompatibility in qwen2_block_top';
-    end
-end
-
-function safe_close_models(tbName, mdlName)
-    try
-        bdclose(tbName);
-    catch
-    end
-    try
-        bdclose(mdlName);
-    catch
     end
 end
