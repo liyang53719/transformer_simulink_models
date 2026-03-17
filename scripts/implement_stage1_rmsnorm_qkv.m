@@ -1250,6 +1250,10 @@ function configure_qkv_proj(subPath)
         'Inputs', '++', 'Position', [570, 60, 605, 100]);
     add_block('simulink/Sources/Constant', [subPath '/group_idx_const'], ...
         'Value', '0', 'Position', [500, 120, 540, 140]);
+    add_block('simulink/Signal Attributes/Signal Conversion', [subPath '/q_valid_alias'], ...
+        'Position', [505, 170, 540, 190]);
+    add_block('simulink/Signal Attributes/Signal Conversion', [subPath '/kv_valid_alias'], ...
+        'Position', [505, 205, 540, 225]);
     add_or_reset_bus_creator(subPath, 'qkv_stream_bc', 6, [560, 245, 600, 355], 'QkvStreamBus');
     try
         set_param([subPath '/qkv_stream_bc'], 'InputSignalNames', ...
@@ -1285,12 +1289,16 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, qOut, 'qkv_stream_bc/1');
     safe_add_line(subPath, kOut, 'qkv_stream_bc/2');
     safe_add_line(subPath, vOut, 'qkv_stream_bc/3');
-    safe_add_line(subPath, qReqValid, 'qkv_stream_bc/4');
-    safe_add_line(subPath, kReqValid, 'qkv_stream_bc/5');
+    safe_add_line(subPath, qReqValid, 'q_valid_alias/1');
+    safe_add_line(subPath, kReqValid, 'kv_valid_alias/1');
+    safe_add_line(subPath, 'q_valid_alias/1', 'qkv_stream_bc/4');
+    safe_add_line(subPath, 'kv_valid_alias/1', 'qkv_stream_bc/5');
     safe_add_line(subPath, 'group_idx_const/1', 'qkv_stream_bc/6');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 1, 'q_stream');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 2, 'k_stream');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 3, 'v_stream');
+    set_line_name_by_src_port(subPath, 'q_valid_alias', 1, 'q_valid');
+    set_line_name_by_src_port(subPath, 'kv_valid_alias', 1, 'kv_valid');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 4, 'q_valid');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 5, 'kv_valid');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 6, 'group_idx');
