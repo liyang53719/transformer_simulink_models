@@ -22,7 +22,7 @@ function result = run_stage2_real_first_block_output_delta_regression(rootDir, o
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
 
     baseline = simulate_wrapper_out_hidden(rootDir, kvCfg, buildModel, []);
-    realSample = simulate_wrapper_out_hidden(rootDir, kvCfg, false, double(weightRspCfg.sample_values));
+    realSample = simulate_wrapper_out_hidden(rootDir, kvCfg, buildModel, double(weightRspCfg.sample_values));
 
     baselineData = baseline(:);
     realData = realSample(:);

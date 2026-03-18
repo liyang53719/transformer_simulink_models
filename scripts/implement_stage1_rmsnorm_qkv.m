@@ -54,6 +54,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     build_prefill_path(mdlName, stageProfile, useExternalWeightRsp);
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
+    terminate_unused_stage2_ports(mdlName, stageProfile, useExternalWeightRsp);
     cleanup_disconnected_lines(mdlName);
     arrange_model_systems(mdlName, stageProfile);
     cleanup_disconnected_lines(mdlName);
@@ -402,10 +403,63 @@ function remove_top_level_weight_req_merge_blocks(mdlName)
 end
 
 function remove_unused_top_level_blocks(mdlName)
-    names = {'w_req_bridge_u', 'w_rsp_demux', 'w_req_v1_u8', 'w_req_v2_u8', 'clk', 'rst_n'};
+    names = {'w_req_bridge_u', 'w_rsp_demux', 'w_req_mux', ...
+        'w_req_v1_u8', 'w_req_v2_u8', 'w_req_v3_u8', 'w_req_v4_u8', 'w_req_v5_u8', ...
+        'w_req_v6_u8', 'w_req_v7_u8', 'w_req_v8_u8', 'w_req_v9_u8', 'clk', 'rst_n'};
     for i = 1:numel(names)
         remove_top_block_if_exists(mdlName, names{i});
     end
+end
+
+function terminate_unused_stage2_ports(mdlName, stageProfile, useExternalWeightRsp)
+    if stageProfile ~= "stage2_memory_ready"
+        return;
+    end
+
+    specs = {
+        'axi_master_rd_u', 2; ...
+        'axi_master_rd_u', 6; ...
+        'axi_master_wr_u', 1; ...
+        'axi_master_wr_u', 5; ...
+        'ddr_model_if_u', 1; ...
+        'ddr_model_if_u', 2; ...
+        'ddr_model_if_u', 3; ...
+        'kv_cache_if_u', 4; ...
+        'kv_cache_if_u', 5; ...
+        'kv_cache_if_u', 6; ...
+        'qkv_proj_u', 2};
+
+    if useExternalWeightRsp
+        specs(end + 1, :) = {'axi_weight_rd_u', 1}; %#ok<AGROW>
+    end
+
+    for i = 1:size(specs, 1)
+        ensure_output_terminator(mdlName, specs{i, 1}, specs{i, 2});
+    end
+end
+
+function ensure_output_terminator(mdlName, blockName, portIndex)
+    srcPath = [mdlName '/' blockName];
+    if getSimulinkBlockHandle(srcPath) == -1
+        return;
+    end
+
+    ph = get_param(srcPath, 'PortHandles');
+    if numel(ph.Outport) < portIndex
+        return;
+    end
+
+    lineHandle = get_param(ph.Outport(portIndex), 'Line');
+    if lineHandle ~= -1
+        return;
+    end
+
+    termName = sprintf('%s_unused_out%d_term', blockName, portIndex);
+    termPath = [mdlName '/' termName];
+    if getSimulinkBlockHandle(termPath) == -1
+        add_block('simulink/Sinks/Terminator', termPath, 'Position', [1400, 100 + 35 * portIndex, 1420, 120 + 35 * portIndex]);
+    end
+    force_add_line(mdlName, sprintf('%s/%d', blockName, portIndex), [termName '/1']);
 end
 
 function remove_top_block_if_exists(mdlName, name)
@@ -851,6 +905,8 @@ function configure_prefill_scheduler(subPath, cfg)
     add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [20, 40, 50, 54]);
     add_block('simulink/Sources/In1', [subPath '/seq_len'], 'Position', [20, 80, 50, 94]);
     add_block('simulink/Sources/In1', [subPath '/mode_decode'], 'Position', [20, 120, 50, 134]);
+    add_block('simulink/Sinks/Terminator', [subPath '/token_pos_term'], 'Position', [90, 360, 110, 380]);
+    add_block('simulink/Sinks/Terminator', [subPath '/mode_decode_term'], 'Position', [130, 360, 150, 380]);
     add_block('simulink/Sources/Constant', [subPath '/tile_seq_const'], ...
         'Value', num2str(cfg.tile_seq), 'Position', [90, 20, 150, 40]);
     add_block('simulink/Sources/Constant', [subPath '/tile_k_const'], ...
@@ -896,6 +952,8 @@ function configure_prefill_scheduler(subPath, cfg)
 
     safe_add_line(subPath, 'seq_len/1', 'active_seq_min/1');
     safe_add_line(subPath, 'tile_seq_const/1', 'active_seq_min/2');
+    safe_add_line(subPath, 'token_pos/1', 'token_pos_term/1');
+    safe_add_line(subPath, 'mode_decode/1', 'mode_decode_term/1');
     safe_add_line(subPath, 'kv_first_const/1', 'kv_phase_first/1');
     safe_add_line(subPath, 'score_scale_const/1', 'score_scale/1');
     safe_add_line(subPath, 'qpkv_const/1', 'q_heads_per_kv/1');
@@ -1033,11 +1091,15 @@ function configure_weight_addr_map(subPath)
     for i = 1:numel(outNames)
         add_block('simulink/Math Operations/Add', [subPath '/' outNames{i} '_sum'], ...
             'Inputs', '++', 'Position', [370, y0 + 30 * (i - 1), 405, y0 + 30 * (i - 1) + 25]);
+        add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' outNames{i} '_cast'], ...
+            'OutDataTypeStr', 'single', ...
+            'Position', [420, y0 + 30 * (i - 1), 450, y0 + 30 * (i - 1) + 25]);
         add_block('simulink/Sinks/Out1', [subPath '/' outNames{i}], ...
-            'Position', [450, y0 + 30 * (i - 1) + 5, 480, y0 + 30 * (i - 1) + 19]);
+            'Position', [490, y0 + 30 * (i - 1) + 5, 520, y0 + 30 * (i - 1) + 19]);
         safe_add_line(subPath, 'addr_base_sum/1', [outNames{i} '_sum/1']);
         safe_add_line(subPath, ['off' num2str(i - 1) '/1'], [outNames{i} '_sum/2']);
-        safe_add_line(subPath, [outNames{i} '_sum/1'], [outNames{i} '/1']);
+        safe_add_line(subPath, [outNames{i} '_sum/1'], [outNames{i} '_cast/1']);
+        safe_add_line(subPath, [outNames{i} '_cast/1'], [outNames{i} '/1']);
     end
 
     safe_add_line(subPath, 'token_pos/1', 'tok_head_prod/1');
@@ -1180,7 +1242,7 @@ function define_bus(name, fieldNames)
     elems = repmat(Simulink.BusElement, numel(fieldNames), 1);
     for i = 1:numel(fieldNames)
         elems(i).Name = fieldNames{i};
-        elems(i).DataType = 'double';
+        elems(i).DataType = 'single';
         elems(i).Dimensions = 1;
     end
     b = Simulink.Bus;
@@ -1197,7 +1259,7 @@ function define_bus_typed(name, fieldNames)
         elseif endsWith(fieldNames{i}, '_data')
             elems(i).DataType = 'uint8';
         else
-            elems(i).DataType = 'double';
+            elems(i).DataType = 'single';
         end
         elems(i).Dimensions = 1;
     end
@@ -1224,7 +1286,7 @@ function configure_rmsnorm(subPath)
     add_block('simulink/Math Operations/Math Function', [subPath '/sqrt_denom'], ...
         'Operator', 'sqrt', 'Position', [260, 65, 300, 95]);
     add_block('simulink/Math Operations/Divide', [subPath '/x_norm'], ...
-        'OutDataTypeStr', 'double', ...
+        'OutDataTypeStr', 'single', ...
         'Position', [330, 50, 365, 100]);
     add_or_reset_bus_creator(subPath, 'req_bc', 2, [560, 130, 600, 190], 'WeightReqRmsBus');
     try
@@ -1279,17 +1341,17 @@ function configure_qkv_proj(subPath)
     add_block('simulink/Discrete/Unit Delay', [subPath '/fused_qkv_valid_z'], ...
         'InitialCondition', '0', 'Position', [490, 185, 520, 210]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/q_valid_alias'], ...
-        'OutDataTypeStr', 'double', ...
+        'OutDataTypeStr', 'single', ...
         'Position', [505, 170, 540, 190]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/kv_valid_alias'], ...
-        'OutDataTypeStr', 'double', ...
+        'OutDataTypeStr', 'single', ...
         'Position', [505, 205, 540, 225]);
     add_block('simulink/Math Operations/Gain', [subPath '/kv_group_gain'], ...
         'Gain', '2', 'Position', [500, 110, 540, 135]);
     add_block('simulink/Math Operations/Add', [subPath '/group_idx_sum'], ...
         'Inputs', '++', 'Position', [560, 110, 595, 140]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/group_idx_alias'], ...
-        'OutDataTypeStr', 'double', 'Position', [605, 110, 645, 140]);
+        'OutDataTypeStr', 'single', 'Position', [605, 110, 645, 140]);
     add_or_reset_bus_creator(subPath, 'qkv_stream_bc', 6, [560, 245, 600, 355], 'QkvStreamBus');
     try
         set_param([subPath '/qkv_stream_bc'], 'InputSignalNames', ...
@@ -1422,7 +1484,7 @@ function configure_attention(subPath)
     add_block('simulink/Math Operations/Add', [subPath '/score_tile_bias'], ...
         'Inputs', '++', 'Position', [350, 250, 385, 280]);
     add_block('simulink/Math Operations/Add', [subPath '/score_den_pre'], ...
-        'Inputs', '++', 'Position', [350, 55, 385, 95]);
+        'Inputs', '+', 'Position', [350, 55, 385, 95]);
     add_block('simulink/Math Operations/Add', [subPath '/score_den'], ...
         'Inputs', '++', 'Position', [420, 55, 455, 95]);
     add_block('simulink/Math Operations/Product', [subPath '/softmax_gate'], ...
@@ -1681,14 +1743,14 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' reqAddrCast], ...
         'OutDataTypeStr', 'uint8', 'Position', [x0 + 145, y0 - 2, x0 + 185, y0 + 22]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' reqAddrOutCast], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 195, y0 - 2, x0 + 235, y0 + 22]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 195, y0 - 2, x0 + 235, y0 + 22]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/' reqAddrDelay], ...
         'InitialCondition', '0', 'Position', [x0 + 245, y0 - 2, x0 + 275, y0 + 22]);
 
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/' reqNeeded], ...
         'Operator', 'NOT', 'Position', [x0 + 5, y0 + 70, x0 + 35, y0 + 90]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' reqValidCast], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 45, y0 + 70, x0 + 85, y0 + 90]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 45, y0 + 70, x0 + 85, y0 + 90]);
     add_block('simulink/Sources/Constant', [subPath '/' defaultConst], ...
         'Value', defaultWeight, 'Position', [x0 + 5, y0 + 45, x0 + 45, y0 + 65]);
     add_block('hdlsllib/HDL RAMs/Simple Dual Port RAM', [subPath '/' sram], ...
@@ -1698,15 +1760,15 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' ddrValidCast], ...
         'OutDataTypeStr', 'boolean', 'Position', [x0 + 55, y0 + 75, x0 + 90, y0 + 95]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramAddrAlias], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 145, y0 - 35, x0 + 185, y0 - 15]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 145, y0 - 35, x0 + 185, y0 - 15]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDinAlias], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 55, y0 + 5, x0 + 95, y0 + 25]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 55, y0 + 5, x0 + 95, y0 + 25]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramWeAlias], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 55, y0 + 105, x0 + 95, y0 + 125]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 55, y0 + 105, x0 + 95, y0 + 125]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDataCast], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 180, y0 + 45, x0 + 215, y0 + 65]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 180, y0 + 45, x0 + 215, y0 + 65]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDoutAlias], ...
-        'OutDataTypeStr', 'double', 'Position', [x0 + 180, y0 + 5, x0 + 215, y0 + 25]);
+        'OutDataTypeStr', 'single', 'Position', [x0 + 180, y0 + 5, x0 + 215, y0 + 25]);
     add_block('simulink/Sinks/Terminator', [subPath '/' sramAddrTerm], ...
         'Position', [x0 + 205, y0 - 35, x0 + 225, y0 - 15]);
     add_block('simulink/Sinks/Terminator', [subPath '/' sramDinTerm], ...
@@ -1723,7 +1785,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
         'Operator', 'OR', 'Position', [x0 + 230, y0 + 95, x0 + 260, y0 + 125]);
 
     add_block('simulink/Math Operations/Product', [subPath '/' mulBlk], ...
-        'Inputs', '**', 'Position', [x0 + 305, y0 + 45, x0 + 340, y0 + 85]);
+        'Inputs', '**', 'OutDataTypeStr', 'single', 'Position', [x0 + 305, y0 + 45, x0 + 340, y0 + 85]);
 
     safe_add_line(subPath, reqAddrSig, [reqAddrCast '/1']);
     safe_add_line(subPath, [reqAddrCast '/1'], [reqAddrOutCast '/1']);

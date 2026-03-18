@@ -25,7 +25,7 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
     signalSpecs = build_signal_specs();
 
     baseline = simulate_stage_signals(rootDir, kvCfg, buildModel, [], signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
-    realSample = simulate_stage_signals(rootDir, kvCfg, false, double(weightRspCfg.sample_values), signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
+    realSample = simulate_stage_signals(rootDir, kvCfg, buildModel, double(weightRspCfg.sample_values), signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
 
     stageResults = repmat(struct( ...
         'name', '', ...

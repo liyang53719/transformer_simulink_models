@@ -15,23 +15,25 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     cfgDefault = struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1);
     cfgVariant = struct('rd_base', 64, 'wr_base', 128, 'stride_bytes', 4, 'decode_burst_len', 2);
 
+    rebuildEachCase = true;
+
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
-    rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', false));
-    rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rPrefillAttention = run_stage2_prefill_attention_functional_smoke(rootDir, struct('BuildModel', false));
-    rWrapperTb = run_stage2_wrapper_tb_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rKvBanking = run_stage2_kv_banking_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rAttentionPipe = run_stage2_attention_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rFfnPipe = run_stage2_ffn_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rQkvPipe = run_stage2_qkv_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rAttentionDdr = run_stage2_attention_ddr_integration_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
-    rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
+    rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', rebuildEachCase));
+    rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rPrefillAttention = run_stage2_prefill_attention_functional_smoke(rootDir, struct('BuildModel', rebuildEachCase));
+    rWrapperTb = run_stage2_wrapper_tb_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rKvBanking = run_stage2_kv_banking_pipeline_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rAttentionPipe = run_stage2_attention_pipeline_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rFfnPipe = run_stage2_ffn_pipeline_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rQkvPipe = run_stage2_qkv_pipeline_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rAttentionDdr = run_stage2_attention_ddr_integration_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
+    rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
 
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgVariant));
-    rDecodeVariant = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgVariant));
+    rDecodeVariant = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgVariant));
 
     summary = struct();
     summary.default_decode = rDecodeDefault;
