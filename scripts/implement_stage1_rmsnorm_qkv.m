@@ -1269,12 +1269,26 @@ function configure_qkv_proj(subPath)
         'Inputs', '++', 'Position', [500, 45, 535, 85]);
     add_block('simulink/Math Operations/Add', [subPath '/qkv_sum'], ...
         'Inputs', '++', 'Position', [570, 60, 605, 100]);
-    add_block('simulink/Sources/Constant', [subPath '/group_idx_const'], ...
-        'Value', '0', 'Position', [500, 120, 540, 140]);
-    add_block('simulink/Signal Attributes/Signal Conversion', [subPath '/q_valid_alias'], ...
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/kv_pair_valid'], ...
+        'Operator', 'AND', 'Position', [440, 145, 470, 170]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/kv_pair_valid_z'], ...
+        'InitialCondition', '0', 'Position', [490, 145, 520, 170]);
+    add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/fused_qkv_valid'], ...
+        'Operator', 'AND', 'Position', [440, 185, 470, 210]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/fused_qkv_valid_z'], ...
+        'InitialCondition', '0', 'Position', [490, 185, 520, 210]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/q_valid_alias'], ...
+        'OutDataTypeStr', 'double', ...
         'Position', [505, 170, 540, 190]);
-    add_block('simulink/Signal Attributes/Signal Conversion', [subPath '/kv_valid_alias'], ...
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/kv_valid_alias'], ...
+        'OutDataTypeStr', 'double', ...
         'Position', [505, 205, 540, 225]);
+    add_block('simulink/Math Operations/Gain', [subPath '/kv_group_gain'], ...
+        'Gain', '2', 'Position', [500, 110, 540, 135]);
+    add_block('simulink/Math Operations/Add', [subPath '/group_idx_sum'], ...
+        'Inputs', '++', 'Position', [560, 110, 595, 140]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/group_idx_alias'], ...
+        'OutDataTypeStr', 'double', 'Position', [605, 110, 645, 140]);
     add_or_reset_bus_creator(subPath, 'qkv_stream_bc', 6, [560, 245, 600, 355], 'QkvStreamBus');
     try
         set_param([subPath '/qkv_stream_bc'], 'InputSignalNames', ...
@@ -1310,11 +1324,21 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, qOut, 'qkv_stream_bc/1');
     safe_add_line(subPath, kOut, 'qkv_stream_bc/2');
     safe_add_line(subPath, vOut, 'qkv_stream_bc/3');
-    safe_add_line(subPath, qReqValid, 'q_valid_alias/1');
-    safe_add_line(subPath, kReqValid, 'kv_valid_alias/1');
+    safe_add_line(subPath, kReqValid, 'kv_pair_valid/1');
+    safe_add_line(subPath, vReqValid, 'kv_pair_valid/2');
+    safe_add_line(subPath, 'kv_pair_valid/1', 'kv_pair_valid_z/1');
+    safe_add_line(subPath, qReqValid, 'fused_qkv_valid/1');
+    safe_add_line(subPath, 'kv_pair_valid_z/1', 'fused_qkv_valid/2');
+    safe_add_line(subPath, 'fused_qkv_valid/1', 'fused_qkv_valid_z/1');
+    safe_add_line(subPath, 'fused_qkv_valid_z/1', 'q_valid_alias/1');
+    safe_add_line(subPath, 'kv_pair_valid_z/1', 'kv_valid_alias/1');
     safe_add_line(subPath, 'q_valid_alias/1', 'qkv_stream_bc/4');
     safe_add_line(subPath, 'kv_valid_alias/1', 'qkv_stream_bc/5');
-    safe_add_line(subPath, 'group_idx_const/1', 'qkv_stream_bc/6');
+    safe_add_line(subPath, 'kv_valid_alias/1', 'kv_group_gain/1');
+    safe_add_line(subPath, 'q_valid_alias/1', 'group_idx_sum/1');
+    safe_add_line(subPath, 'kv_group_gain/1', 'group_idx_sum/2');
+    safe_add_line(subPath, 'group_idx_sum/1', 'group_idx_alias/1');
+    safe_add_line(subPath, 'group_idx_alias/1', 'qkv_stream_bc/6');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 1, 'q_stream');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 2, 'k_stream');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 3, 'v_stream');
@@ -1323,6 +1347,11 @@ function configure_qkv_proj(subPath)
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 4, 'q_valid');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 5, 'kv_valid');
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 6, 'group_idx');
+    set_line_name_by_src_port(subPath, 'kv_pair_valid', 1, 'kv_pair_valid');
+    set_line_name_by_src_port(subPath, 'kv_pair_valid_z', 1, 'kv_pair_valid_z');
+    set_line_name_by_src_port(subPath, 'fused_qkv_valid', 1, 'fused_qkv_valid');
+    set_line_name_by_src_port(subPath, 'fused_qkv_valid_z', 1, 'fused_qkv_valid_z');
+    set_line_name_by_src_port(subPath, 'group_idx_alias', 1, 'group_idx');
     safe_add_line(subPath, 'qkv_stream_bc/1', 'qkv_bus/1');
 
     safe_add_line(subPath, qReqAddr, 'req_bc/1');

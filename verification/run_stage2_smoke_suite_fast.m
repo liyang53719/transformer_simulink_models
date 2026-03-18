@@ -25,6 +25,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rKvBanking = run_stage2_kv_banking_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAttentionPipe = run_stage2_attention_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rFfnPipe = run_stage2_ffn_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
+    rQkvPipe = run_stage2_qkv_pipeline_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAttentionDdr = run_stage2_attention_ddr_integration_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiRd = run_stage2_axi_rd_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rAxiWr = run_stage2_axi_wr_functional_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
@@ -41,13 +42,14 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_kv_banking = rKvBanking;
     summary.default_attention_pipeline = rAttentionPipe;
     summary.default_ffn_pipeline = rFfnPipe;
+    summary.default_qkv_pipeline = rQkvPipe;
     summary.default_attention_ddr = rAttentionDdr;
     summary.default_axi_rd = rAxiRd;
     summary.default_axi_wr = rAxiWr;
     summary.variant_decode = rDecodeVariant;
     summary.pass = rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rKvBanking.pass && ...
-        rAttentionPipe.pass && rFfnPipe.pass && ...
+        rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && ...
         rAxiWr.pass && rDecodeVariant.pass;
 

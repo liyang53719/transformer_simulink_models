@@ -27,7 +27,9 @@
 - `ffn_swiglu_u` 进一步从近似组合算子推进成“gate/up 融合前级 + down 投影后级”分阶段结构，并新增 `run_stage2_ffn_pipeline_smoke` 直接检查内部 valid 链路。
 - `run_stage2_smoke_suite_fast` 已继续纳入 FFN pipeline smoke，当前 attention、KV banking、FFN 三条主线都具备内部语义级回归，而不只是边界 smoke。
 - 验证通过：`run_stage2_ffn_pipeline_smoke`、`run_stage2_smoke_suite_fast`、`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
-- 下一步：继续把 QKV/FFN 的参数布局和融合数据流从当前阶段语义推进到更接近真实 weight-stationary / offline-concat 设计。
+- `qkv_proj_u` 已从固定 `group_idx=0` 的占位流，推进为 K/V 先配对、Q 随后进入 fused QKV issue 阶段的内部 staged-valid 结构；`QkvStreamBus.group_idx` 也改为由 `q_valid + 2 * kv_valid` 驱动，用来显式表达 fused Q+KV 共享权重池语义。
+- 新增 `run_stage2_qkv_pipeline_smoke`，直接记录 `qkv_proj_u` 内部 `kv_pair_valid -> fused_qkv_valid` 的阶段链路与 `group_idx` 组合语义。
+- 下一步：继续把 QKV/weight responder 的地址布局，从当前 staged-valid 与 group 语义推进到更接近真实 offline-concat 页布局和 weight-stationary 分段映射。
 
 ### 2026-03-17
 - wrapper 联调路径新增 attention+DDR 集成 smoke，已纳入 fast suite。
