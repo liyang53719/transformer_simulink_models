@@ -29,7 +29,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         'KvAddressConfig', kvCfg));
     tbName = char(modelInfo.tbName);
     mdlName = char(modelInfo.dutName);
-    ensure_qkv_ffn_observers(tbName);
+    ensure_weight_observers(tbName);
     inject_sample_values_into_weight_ref(tbName, meta.sample_values);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
@@ -38,6 +38,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     yout = simOut.get('yout');
 
     result = struct();
+    result.gamma_rsp_ok = matches_constant_response(yout, 'tb_gamma_rsp_data', 'tb_gamma_rsp_valid', meta.sample_values(1));
     result.qkv_q_rsp_ok = matches_constant_response(yout, 'tb_qkv_q_rsp_data', 'tb_qkv_q_rsp_valid', meta.sample_values(2));
     result.qkv_k_rsp_ok = matches_constant_response(yout, 'tb_qkv_k_rsp_data', 'tb_qkv_k_rsp_valid', meta.sample_values(3));
     result.qkv_v_rsp_ok = matches_constant_response(yout, 'tb_qkv_v_rsp_data', 'tb_qkv_v_rsp_valid', meta.sample_values(4));
@@ -46,6 +47,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     result.attn_v_rsp_ok = matches_constant_response(yout, 'tb_attn_v_rsp_data', 'tb_attn_v_rsp_valid', meta.sample_values(7));
     result.ffn_up_rsp_ok = matches_constant_response(yout, 'tb_ffn_up_rsp_data', 'tb_ffn_up_rsp_valid', meta.sample_values(8));
     result.ffn_gate_rsp_ok = matches_constant_response(yout, 'tb_ffn_gate_rsp_data', 'tb_ffn_gate_rsp_valid', meta.sample_values(9));
+    result.gamma_addr_ok = matches_request_address(yout, 'tb_gamma_req_addr', 'tb_gamma_req_valid', meta.expected_addrs(1));
     result.qkv_q_addr_ok = matches_request_address(yout, 'tb_qkv_q_req_addr', 'tb_qkv_q_req_valid', meta.expected_addrs(2));
     result.qkv_k_addr_ok = matches_request_address(yout, 'tb_qkv_k_req_addr', 'tb_qkv_k_req_valid', meta.expected_addrs(3));
     result.qkv_v_addr_ok = matches_request_address(yout, 'tb_qkv_v_req_addr', 'tb_qkv_v_req_valid', meta.expected_addrs(4));
@@ -57,9 +59,11 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     outHidden = double(extract_signal(yout, 'out_hidden'));
     result.out_hidden_nonzero = any(abs(outHidden) > 0);
     result.out_hidden_dynamic = numel(unique(outHidden(:))) > 1;
-    result.pass = result.qkv_q_rsp_ok && result.qkv_k_rsp_ok && result.qkv_v_rsp_ok && ...
+    result.pass = result.gamma_rsp_ok && ...
+        result.qkv_q_rsp_ok && result.qkv_k_rsp_ok && result.qkv_v_rsp_ok && ...
         result.attn_q_rsp_ok && result.attn_k_rsp_ok && result.attn_v_rsp_ok && ...
         result.ffn_up_rsp_ok && result.ffn_gate_rsp_ok && ...
+        result.gamma_addr_ok && ...
         result.qkv_q_addr_ok && result.qkv_k_addr_ok && result.qkv_v_addr_ok && ...
         result.attn_q_addr_ok && result.attn_k_addr_ok && result.attn_v_addr_ok && ...
         result.ffn_up_addr_ok && result.ffn_gate_addr_ok && ...
@@ -69,18 +73,19 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         fprintf('Stage2 real first-block direct bus regression PASS\n');
     else
         fprintf('Stage2 real first-block direct bus regression FAIL\n');
-        fprintf(['  qkv_q_rsp=%d qkv_k_rsp=%d qkv_v_rsp=%d ' ...
+        fprintf(['  gamma_rsp=%d qkv_q_rsp=%d qkv_k_rsp=%d qkv_v_rsp=%d ' ...
             'attn_q_rsp=%d attn_k_rsp=%d attn_v_rsp=%d ffn_up_rsp=%d ffn_gate_rsp=%d\n'], ...
-            result.qkv_q_rsp_ok, result.qkv_k_rsp_ok, result.qkv_v_rsp_ok, ...
+            result.gamma_rsp_ok, result.qkv_q_rsp_ok, result.qkv_k_rsp_ok, result.qkv_v_rsp_ok, ...
             result.attn_q_rsp_ok, result.attn_k_rsp_ok, result.attn_v_rsp_ok, ...
             result.ffn_up_rsp_ok, result.ffn_gate_rsp_ok);
-        fprintf(['  qkv_q_addr=%d qkv_k_addr=%d qkv_v_addr=%d ' ...
+        fprintf(['  gamma_addr=%d qkv_q_addr=%d qkv_k_addr=%d qkv_v_addr=%d ' ...
             'attn_q_addr=%d attn_k_addr=%d attn_v_addr=%d ffn_up_addr=%d ffn_gate_addr=%d ' ...
             'out_hidden_nonzero=%d out_hidden_dynamic=%d\n'], ...
-            result.qkv_q_addr_ok, result.qkv_k_addr_ok, result.qkv_v_addr_ok, ...
+            result.gamma_addr_ok, result.qkv_q_addr_ok, result.qkv_k_addr_ok, result.qkv_v_addr_ok, ...
             result.attn_q_addr_ok, result.attn_k_addr_ok, result.attn_v_addr_ok, ...
             result.ffn_up_addr_ok, result.ffn_gate_addr_ok, ...
             result.out_hidden_nonzero, result.out_hidden_dynamic);
+        fprintf('  tb_gamma_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_gamma_rsp_data'));
         fprintf('  tb_qkv_q_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_qkv_q_rsp_data'));
         fprintf('  tb_qkv_k_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_qkv_k_rsp_data'));
         fprintf('  tb_qkv_v_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_qkv_v_rsp_data'));
@@ -89,6 +94,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         fprintf('  tb_attn_v_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_attn_v_rsp_data'));
         fprintf('  tb_ffn_up_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_ffn_up_rsp_data'));
         fprintf('  tb_ffn_gate_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_ffn_gate_rsp_data'));
+        fprintf('  tb_gamma_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_gamma_rsp_valid'));
         fprintf('  tb_qkv_q_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_qkv_q_rsp_valid'));
         fprintf('  tb_qkv_k_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_qkv_k_rsp_valid'));
         fprintf('  tb_qkv_v_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_qkv_v_rsp_valid'));
@@ -149,12 +155,20 @@ function inject_sample_values_into_weight_ref(tbName, sampleValues)
     end
 end
 
-function ensure_qkv_ffn_observers(tbName)
+function ensure_weight_observers(tbName)
     if ~isempty(find_system(tbName, 'SearchDepth', 1, 'Name', 'tb_qkv_q_rsp_data'))
-        return;
+        if ~isempty(find_system(tbName, 'SearchDepth', 1, 'Name', 'tb_gamma_rsp_data'))
+            return;
+        end
     end
 
     reqSrc = get_existing_source_endpoint([tbName '/tb_w_req_sel']);
+
+    add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_gamma_sel'], ...
+        'OutputSignals', 'gamma_valid,gamma_data', ...
+        'Position', [1080, 595, 1145, 645]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_rsp_valid'], 'Position', [1240, 120, 1270, 134]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_rsp_data'], 'Position', [1240, 160, 1270, 174]);
 
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_qkv_sel'], ...
         'OutputSignals', 'qkv_q_valid,qkv_k_valid,qkv_v_valid', ...
@@ -180,10 +194,13 @@ function ensure_qkv_ffn_observers(tbName)
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_up_rsp_data'], 'Position', [1240, 640, 1270, 654]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_rsp_data'], 'Position', [1240, 680, 1270, 694]);
 
+    add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_gamma_sel/1', 'autorouting', 'on');
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_qkv_sel/1', 'autorouting', 'on');
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_qkv_data_sel/1', 'autorouting', 'on');
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_ffn_sel/1', 'autorouting', 'on');
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_ffn_data_sel/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_gamma_sel/1', 'tb_gamma_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_gamma_sel/2', 'tb_gamma_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_qkv_sel/1', 'tb_qkv_q_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_qkv_sel/2', 'tb_qkv_k_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_qkv_sel/3', 'tb_qkv_v_rsp_valid/1', 'autorouting', 'on');
@@ -195,12 +212,17 @@ function ensure_qkv_ffn_observers(tbName)
     add_line(tbName, 'tb_w_rsp_ffn_data_sel/1', 'tb_ffn_up_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_ffn_data_sel/2', 'tb_ffn_gate_rsp_data/1', 'autorouting', 'on');
 
+    add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_gamma_sel'], ...
+        'OutputSignals', 'gamma_addr,gamma_valid', ...
+        'Position', [1080, 505, 1145, 555]);
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_qkv_sel'], ...
         'OutputSignals', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', ...
         'Position', [1080, 560, 1145, 700]);
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_ffn_sel'], ...
         'OutputSignals', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid', ...
         'Position', [1080, 710, 1145, 810]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_req_addr'], 'Position', [1240, 40, 1270, 54]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_req_valid'], 'Position', [1240, 80, 1270, 94]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_qkv_q_req_addr'], 'Position', [1240, 560, 1270, 574]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_qkv_q_req_valid'], 'Position', [1240, 200, 1270, 214]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_qkv_k_req_addr'], 'Position', [1240, 600, 1270, 614]);
@@ -212,8 +234,11 @@ function ensure_qkv_ffn_observers(tbName)
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_addr'], 'Position', [1240, 800, 1270, 814]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_valid'], 'Position', [1240, 840, 1270, 854]);
 
+    add_line(tbName, reqSrc, 'tb_w_req_gamma_sel/1', 'autorouting', 'on');
     add_line(tbName, reqSrc, 'tb_w_req_qkv_sel/1', 'autorouting', 'on');
     add_line(tbName, reqSrc, 'tb_w_req_ffn_sel/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_req_gamma_sel/1', 'tb_gamma_req_addr/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_req_gamma_sel/2', 'tb_gamma_req_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_req_qkv_sel/1', 'tb_qkv_q_req_addr/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_req_qkv_sel/2', 'tb_qkv_q_req_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_req_qkv_sel/3', 'tb_qkv_k_req_addr/1', 'autorouting', 'on');
