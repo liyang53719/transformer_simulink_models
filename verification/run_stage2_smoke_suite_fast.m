@@ -15,7 +15,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     cfgDefault = struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1);
     cfgVariant = struct('rd_base', 64, 'wr_base', 128, 'stride_bytes', 4, 'decode_burst_len', 2);
 
-    rebuildEachCase = true;
+    rebuildEachCase = false;
 
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);

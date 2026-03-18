@@ -325,10 +325,13 @@ function ensure_stage2_ports(mdlName, useExternalWeightRsp)
         remove_top_block_if_exists(mdlName, 'w_rd_rsp_bus');
     end
     set_root_inport_type(mdlName, 'start', 'boolean');
+    set_root_inport_type(mdlName, 'mode_decode', 'boolean');
+    set_root_inport_type(mdlName, 'eos_in', 'boolean');
     set_root_inport_type(mdlName, 'in_valid', 'boolean');
     set_root_inport_type(mdlName, 'out_ready', 'boolean');
     set_root_inport_type(mdlName, 'in_hidden', 'fixdt(1,64,30)');
     set_root_inport_type(mdlName, 'in_residual', 'fixdt(1,64,30)');
+    set_root_inport_type(mdlName, 'kv_cache_rd_data', 'single');
     set_root_inport_type(mdlName, 'cfg_seq_len', 'fixdt(1,17,15)');
     set_root_inport_type(mdlName, 'cfg_token_pos', 'fixdt(1,17,15)');
     set_root_inport_type(mdlName, 'cfg_eps', 'fixdt(1,256,120)');

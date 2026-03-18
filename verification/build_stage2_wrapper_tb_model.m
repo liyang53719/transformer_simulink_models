@@ -19,7 +19,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'simulink', 'fsm'));
-    ensure_weight_bus_objects_local();
+    ensure_stage2_weight_bus_objects();
     if buildDutModel
         implement_stage1_rmsnorm_qkv(rootDir, struct( ...
             'StageProfile', 'stage2_memory_ready', ...
@@ -28,8 +28,11 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     end
 
     dutPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
-    load_system(dutPath);
     [~, dutName] = fileparts(dutPath);
+    if bdIsLoaded(dutName)
+        close_system(dutName, 0);
+    end
+    load_system(dutPath);
     if ~has_root_inport(dutName, 'w_rd_rsp_bus')
         close_system(dutName, 0);
         implement_stage1_rmsnorm_qkv(rootDir, struct( ...
@@ -376,7 +379,7 @@ function configure_input_read_memory(subPath)
     add_block('simulink/Ports & Subsystems/Subsystem', [subPath '/AXI4MasterRead BusSelector'], ...
         'Position', [380, 30, 500, 160]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_ready'], 'Position', [330, 20, 360, 34]);
-    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'Position', [330, 60, 360, 74]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'OutDataTypeStr', 'single', 'Position', [330, 60, 360, 74]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_data_valid'], 'Position', [330, 120, 360, 134]);
 
     configure_axi4masterread_buscreator([subPath '/AXI4MasterRead BusCreator']);
@@ -467,7 +470,7 @@ function configure_axi4masterread_controller(subPath)
     add_block('simulink/Math Operations/Add', [subPath '/rd_addr_len_sum'], ...
         'Inputs', '++', 'Position', [385, 45, 420, 75]);
     add_block('simulink/Math Operations/Add', [subPath '/rd_data_pack'], ...
-        'Inputs', '++', 'Position', [440, 45, 475, 75]);
+        'Inputs', '++', 'OutDataTypeStr', 'single', 'Position', [440, 45, 475, 75]);
     add_block('simulink/Signal Routing/Bus Creator', [subPath '/rsp_bc'], 'Position', [510, 55, 550, 115]);
     set_param([subPath '/rsp_bc'], 'Inputs', '2');
     try
@@ -514,7 +517,7 @@ function configure_axi4masterread_busselector(subPath)
     add_block('simulink/Sources/In1', [subPath '/rsp_bus'], 'Position', [20, 65, 50, 79]);
     add_block('simulink/Signal Routing/Bus Selector', [subPath '/rsp_sel'], 'Position', [95, 35, 145, 105]);
     set_param([subPath '/rsp_sel'], 'OutputSignals', 'rd_data,rd_data_valid');
-    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'Position', [190, 35, 220, 49]);
+    add_block('simulink/Sinks/Out1', [subPath '/rd_data'], 'OutDataTypeStr', 'single', 'Position', [190, 35, 220, 49]);
     add_block('simulink/Sinks/Out1', [subPath '/rd_data_valid'], 'Position', [190, 95, 220, 109]);
     add_line(subPath, 'rsp_bus/1', 'rsp_sel/1', 'autorouting', 'on');
     add_line(subPath, 'rsp_sel/1', 'rd_data/1', 'autorouting', 'on');
@@ -663,7 +666,7 @@ function compiledType = fallback_inport_type_for_name(name)
         case {'start', 'in_valid', 'out_ready', 'stop_req', 'kv_cache_rd_valid', 'kv_mem_rd_ready', 'kv_mem_wr_ready'}
             compiledType = 'boolean';
         otherwise
-            compiledType = 'double';
+            compiledType = 'single';
     end
 end
 
@@ -784,7 +787,7 @@ function define_bus_local(name, fieldNames)
     elems = repmat(Simulink.BusElement, numel(fieldNames), 1);
     for i = 1:numel(fieldNames)
         elems(i).Name = fieldNames{i};
-        elems(i).DataType = 'double';
+        elems(i).DataType = 'single';
         elems(i).Dimensions = 1;
     end
     busObj = Simulink.Bus;
@@ -801,7 +804,7 @@ function define_bus_typed_local(name, fieldNames)
         elseif endsWith(fieldNames{i}, '_data')
             elems(i).DataType = 'uint8';
         else
-            elems(i).DataType = 'double';
+            elems(i).DataType = 'single';
         end
         elems(i).Dimensions = 1;
     end
