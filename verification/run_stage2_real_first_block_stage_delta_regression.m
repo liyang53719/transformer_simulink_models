@@ -14,6 +14,9 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
     end
 
     buildModel = getFieldOr(options, 'BuildModel', true);
+    useDelayedRamReadAddr = getFieldOr(options, 'UseDelayedRamReadAddr', false);
+    ffnGateValidExtraDelay = getFieldOr(options, 'FfnGateValidExtraDelay', 0);
+    ffnSwigluValidExtraDelay = getFieldOr(options, 'FfnSwigluValidExtraDelay', 0);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
@@ -21,8 +24,8 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
     signalSpecs = build_signal_specs();
 
-    baseline = simulate_stage_signals(rootDir, kvCfg, buildModel, [], signalSpecs);
-    realSample = simulate_stage_signals(rootDir, kvCfg, false, double(weightRspCfg.sample_values), signalSpecs);
+    baseline = simulate_stage_signals(rootDir, kvCfg, buildModel, [], signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
+    realSample = simulate_stage_signals(rootDir, kvCfg, false, double(weightRspCfg.sample_values), signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
 
     stageResults = repmat(struct( ...
         'name', '', ...
@@ -52,10 +55,14 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
 
     outHiddenCmp = compare_signal_pair(baseline.out_hidden, realSample.out_hidden);
     laneSummaries = build_lane_summaries(stageResults, realSample.logged, weightRspCfg);
+    attentionOutputAlignment = build_attention_output_alignment_summary(baseline.logged, realSample.logged);
+    ffnGateAlignment = build_ffn_gate_alignment_summary(baseline.logged, realSample.logged);
 
     result = struct();
     result.stage_results = stageResults;
     result.lane_summaries = laneSummaries;
+    result.attention_output_alignment = attentionOutputAlignment;
+    result.ffn_gate_alignment = ffnGateAlignment;
     result.changed_stage_names = cellstr(changedNames);
     result.changed_stage_count = numel(result.changed_stage_names);
     result.out_hidden = outHiddenCmp;
@@ -76,6 +83,8 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
             end
         end
         print_lane_summaries(laneSummaries);
+        print_attention_output_alignment(attentionOutputAlignment);
+        print_ffn_gate_alignment(ffnGateAlignment);
         fprintf('  out_hidden changed=%d max_abs_diff=%g mean_abs_diff=%g\n', ...
             outHiddenCmp.changed, outHiddenCmp.max_abs_diff, outHiddenCmp.mean_abs_diff);
     else
@@ -105,6 +114,40 @@ function signalSpecs = build_signal_specs()
     signalSpecs = [signalSpecs, append_weight_lane_specs('attention_u', 'v')]; %#ok<AGROW>
     signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'up')]; %#ok<AGROW>
     signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'gate')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_flow_specs('qkv_proj_u', { ...
+        'qk_sum', ...
+        'qkv_sum'})]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_flow_specs('attention_u', { ...
+        'head_group_norm', ...
+        'qk_pair_valid', ...
+        'qk_pair_valid_z', ...
+        'score_mul', ...
+        'score_stage_gate', ...
+        'score_shift', ...
+        'score_norm', ...
+        'softmax_valid', ...
+        'softmax_valid_z', ...
+        'softmax_value_gate', ...
+        'scorev_input_valid', ...
+        'scorev_valid_z', ...
+        'value_weight', ...
+        'scorev_reduce', ...
+        'output_valid_gate', ...
+        'scorev_stage_z'})]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_flow_specs('ffn_swiglu_u', { ...
+        'gateup_pair_valid', ...
+        'gateup_pair_valid_z', ...
+        'gate_norm', ...
+        'gate_norm_gate', ...
+        'swiglu_mul', ...
+        'swiglu_valid_z', ...
+        'swiglu_stage_gate', ...
+        'down_proj', ...
+        'down_valid_z', ...
+        'down_stage_gate'})]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_flow_specs('residual_u', { ...
+        'main_scale', ...
+        'res_sum'})]; %#ok<AGROW>
 end
 
 function specs = append_weight_ref_lane_specs(laneIndex)
@@ -129,7 +172,20 @@ function specs = append_weight_lane_specs(moduleName, prefix)
         struct('scope', 'mdl', 'block', [moduleName '/' prefix '_sram_data_double'], 'port', 1, 'name', [baseName '_sram_data_double']), ...
         struct('scope', 'mdl', 'block', [moduleName '/' prefix '_sram_data_valid_z'], 'port', 1, 'name', [baseName '_sram_data_valid_z']), ...
         struct('scope', 'mdl', 'block', [moduleName '/' prefix '_valid_or'], 'port', 1, 'name', [baseName '_valid_or']), ...
-        struct('scope', 'mdl', 'block', [moduleName '/' prefix '_sram_data_sel'], 'port', 1, 'name', [baseName '_sram_data_sel'])};
+        struct('scope', 'mdl', 'block', [moduleName '/' prefix '_sram_data_sel'], 'port', 1, 'name', [baseName '_sram_data_sel']), ...
+        struct('scope', 'mdl', 'block', [moduleName '/' prefix '_mul'], 'port', 1, 'name', [baseName '_mul'], 'setName', ~strcmp(moduleName, 'qkv_proj_u'))};
+end
+
+function specs = append_flow_specs(moduleName, blockNames)
+    alias = module_alias(moduleName);
+    specs = cell(1, numel(blockNames));
+    for i = 1:numel(blockNames)
+        specs{i} = struct( ...
+            'scope', 'mdl', ...
+            'block', [moduleName '/' blockNames{i}], ...
+            'port', 1, ...
+            'name', ['flow_' alias '_' blockNames{i}]);
+    end
 end
 
 function alias = module_alias(moduleName)
@@ -147,13 +203,23 @@ function alias = module_alias(moduleName)
     end
 end
 
-function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleValues, signalSpecs)
+function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleValues, signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay)
     modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
         'BuildModel', buildModel, ...
         'KvAddressConfig', kvCfg));
     tbName = char(modelInfo.tbName);
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
+
+    if useDelayedRamReadAddr
+        patch_ram_read_addr_to_delay(mdlName);
+    end
+    if ffnGateValidExtraDelay > 0
+        patch_ffn_gate_valid_delay(mdlName, ffnGateValidExtraDelay);
+    end
+    if ffnSwigluValidExtraDelay > 0
+        patch_ffn_swiglu_valid_delay(mdlName, ffnSwigluValidExtraDelay);
+    end
 
     enable_signal_logging(tbName, mdlName, signalSpecs);
 
@@ -173,6 +239,114 @@ function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleVa
         simResult.logged.(signalSpecs{i}.name) = double(extract_logged_signal_optional(logsout, signalSpecs{i}.name, signalSpecs{i}.block));
     end
     simResult.out_hidden = double(extract_signal(yout, 'out_hidden'));
+end
+
+function patch_ffn_gate_valid_delay(mdlName, extraDelay)
+    if extraDelay <= 0
+        return;
+    end
+
+    subPath = [mdlName '/ffn_swiglu_u'];
+    try
+        delete_line(subPath, 'gateup_pair_valid_z/1', 'gate_norm_gate/2');
+    catch
+    end
+
+    prevBlock = 'gateup_pair_valid_z';
+    for i = 1:extraDelay
+        delayName = sprintf('gateup_pair_valid_gate_z%d', i);
+        delayPath = [subPath '/' delayName];
+        if getSimulinkBlockHandle(delayPath) == -1
+            add_block('simulink/Discrete/Unit Delay', delayPath, ...
+                'InitialCondition', '0', 'Position', [320 + 40 * i, 20, 350 + 40 * i, 45]);
+        end
+        try
+            delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        catch
+        end
+        add_line(subPath, [prevBlock '/1'], [delayName '/1'], 'autorouting', 'on');
+        prevBlock = delayName;
+    end
+
+    try
+        delete_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2');
+    catch
+    end
+    add_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2', 'autorouting', 'on');
+end
+
+function patch_ffn_swiglu_valid_delay(mdlName, extraDelay)
+    if extraDelay <= 0
+        return;
+    end
+
+    subPath = [mdlName '/ffn_swiglu_u'];
+    try
+        delete_line(subPath, 'swiglu_valid_z/1', 'swiglu_stage_gate/2');
+    catch
+    end
+
+    prevBlock = 'swiglu_valid_z';
+    for i = 1:extraDelay
+        delayName = sprintf('swiglu_valid_gate_z%d', i);
+        delayPath = [subPath '/' delayName];
+        if getSimulinkBlockHandle(delayPath) == -1
+            add_block('simulink/Discrete/Unit Delay', delayPath, ...
+                'InitialCondition', '0', 'Position', [540 + 40 * i, 20, 570 + 40 * i, 45]);
+        end
+        try
+            delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        catch
+        end
+        add_line(subPath, [prevBlock '/1'], [delayName '/1'], 'autorouting', 'on');
+        prevBlock = delayName;
+    end
+
+    try
+        delete_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2');
+    catch
+    end
+    add_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2', 'autorouting', 'on');
+end
+
+function patch_ram_read_addr_to_delay(mdlName)
+    specs = {
+        struct('path', [mdlName '/rmsnorm_u'], 'prefix', 'gamma'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'q'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'k'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'v'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'q'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'k'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'v'), ...
+        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'up'), ...
+        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'gate')};
+
+    for i = 1:numel(specs)
+        subPath = specs{i}.path;
+        prefix = specs{i}.prefix;
+        sramPath = [subPath '/' prefix '_sram'];
+        reqAddrCastPath = [subPath '/' prefix '_req_addr_u8'];
+        reqAddrDelayPath = [subPath '/' prefix '_req_addr_z'];
+        reqAddrDelayU8Path = [subPath '/' prefix '_req_addr_z_u8_exp'];
+        try
+            delete_line(subPath, [prefix '_req_addr_u8/1'], [prefix '_sram/4']);
+        catch
+        end
+        try
+            delete_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
+        catch
+        end
+        if getSimulinkBlockHandle(sramPath) ~= -1 && ...
+                getSimulinkBlockHandle(reqAddrCastPath) ~= -1 && ...
+                getSimulinkBlockHandle(reqAddrDelayPath) ~= -1
+            if getSimulinkBlockHandle(reqAddrDelayU8Path) == -1
+                add_block('simulink/Signal Attributes/Data Type Conversion', reqAddrDelayU8Path, ...
+                    'OutDataTypeStr', 'uint8', 'Position', [395, 18, 445, 42]);
+                add_line(subPath, [prefix '_req_addr_z/1'], [prefix '_req_addr_z_u8_exp/1'], 'autorouting', 'on');
+            end
+            add_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4'], 'autorouting', 'on');
+        end
+    end
 end
 
 function enable_signal_logging(tbName, mdlName, signalSpecs)
@@ -319,6 +493,110 @@ function print_lane_summaries(laneSummaries)
             laneSummaries(i).sram_changed, ...
             laneSummaries(i).sram_valid_active, ...
             laneSummaries(i).sram_sel_changed);
+    end
+end
+
+function summary = build_attention_output_alignment_summary(baselineLogged, realLogged)
+    reduceBase = get_logged_or_empty(baselineLogged, 'flow_attn_scorev_reduce');
+    reduceReal = get_logged_or_empty(realLogged, 'flow_attn_scorev_reduce');
+    validReal = get_logged_or_empty(realLogged, 'flow_attn_scorev_valid_z');
+    gateReal = get_logged_or_empty(realLogged, 'flow_attn_output_valid_gate');
+    stageReal = get_logged_or_empty(realLogged, 'flow_attn_scorev_stage_z');
+
+    commonLen = min([numel(reduceBase), numel(reduceReal), numel(validReal)]);
+    reduceBase = double(reduceBase(1:commonLen));
+    reduceReal = double(reduceReal(1:commonLen));
+    validMask = double(validReal(1:commonLen)) > 0.5;
+    deltaMask = abs(reduceReal - reduceBase) > 1e-9;
+
+    lagRange = -3:3;
+    lagHits = false(size(lagRange));
+    for i = 1:numel(lagRange)
+        lagHits(i) = masks_overlap_with_shift(deltaMask, validMask, lagRange(i));
+    end
+
+    summary = struct();
+    summary.sample_count = commonLen;
+    summary.scorev_reduce_changed = any(deltaMask);
+    summary.scorev_valid_active = any(validMask);
+    summary.changed_under_valid = any(deltaMask & validMask);
+    summary.output_gate_nonzero = any(abs(double(gateReal(:))) > 1e-9);
+    summary.output_stage_nonzero = any(abs(double(stageReal(:))) > 1e-9);
+    summary.lag_range = lagRange;
+    summary.lag_hits = lagHits;
+end
+
+function print_attention_output_alignment(summary)
+    fprintf('  attn_output_alignment sample_count=%d reduce_changed=%d valid_active=%d changed_under_valid=%d gate_nonzero=%d stage_nonzero=%d\n', ...
+        summary.sample_count, summary.scorev_reduce_changed, summary.scorev_valid_active, ...
+        summary.changed_under_valid, summary.output_gate_nonzero, summary.output_stage_nonzero);
+    for i = 1:numel(summary.lag_range)
+        fprintf('    attn_output_alignment lag=%d overlap=%d\n', summary.lag_range(i), summary.lag_hits(i));
+    end
+end
+
+function summary = build_ffn_gate_alignment_summary(baselineLogged, realLogged)
+    gateNormBase = get_logged_or_empty(baselineLogged, 'flow_ffn_gate_norm');
+    gateNormReal = get_logged_or_empty(realLogged, 'flow_ffn_gate_norm');
+    validReal = get_logged_or_empty(realLogged, 'flow_ffn_gateup_pair_valid_z');
+    gateGateReal = get_logged_or_empty(realLogged, 'flow_ffn_gate_norm_gate');
+    swigluReal = get_logged_or_empty(realLogged, 'flow_ffn_swiglu_mul');
+
+    commonLen = min([numel(gateNormBase), numel(gateNormReal), numel(validReal)]);
+    gateNormBase = double(gateNormBase(1:commonLen));
+    gateNormReal = double(gateNormReal(1:commonLen));
+    validMask = double(validReal(1:commonLen)) > 0.5;
+    deltaMask = abs(gateNormReal - gateNormBase) > 1e-9;
+
+    lagRange = -3:3;
+    lagHits = false(size(lagRange));
+    for i = 1:numel(lagRange)
+        lagHits(i) = masks_overlap_with_shift(deltaMask, validMask, lagRange(i));
+    end
+
+    summary = struct();
+    summary.sample_count = commonLen;
+    summary.gate_norm_changed = any(deltaMask);
+    summary.valid_active = any(validMask);
+    summary.changed_under_valid = any(deltaMask & validMask);
+    summary.gated_output_nonzero = any(abs(double(gateGateReal(:))) > 1e-9);
+    summary.swiglu_mul_nonzero = any(abs(double(swigluReal(:))) > 1e-9);
+    summary.lag_range = lagRange;
+    summary.lag_hits = lagHits;
+end
+
+function print_ffn_gate_alignment(summary)
+    fprintf('  ffn_gate_alignment sample_count=%d gate_norm_changed=%d valid_active=%d changed_under_valid=%d gated_nonzero=%d swiglu_nonzero=%d\n', ...
+        summary.sample_count, summary.gate_norm_changed, summary.valid_active, ...
+        summary.changed_under_valid, summary.gated_output_nonzero, summary.swiglu_mul_nonzero);
+    for i = 1:numel(summary.lag_range)
+        fprintf('    ffn_gate_alignment lag=%d overlap=%d\n', summary.lag_range(i), summary.lag_hits(i));
+    end
+end
+
+function yes = masks_overlap_with_shift(dataMask, validMask, lag)
+    if isempty(dataMask) || isempty(validMask)
+        yes = false;
+        return;
+    end
+
+    commonLen = min(numel(dataMask), numel(validMask));
+    dataMask = logical(dataMask(1:commonLen));
+    validMask = logical(validMask(1:commonLen));
+
+    if lag >= 0
+        if commonLen <= lag
+            yes = false;
+            return;
+        end
+        yes = any(dataMask(1:end-lag) & validMask(1+lag:end));
+    else
+        lagAbs = -lag;
+        if commonLen <= lagAbs
+            yes = false;
+            return;
+        end
+        yes = any(dataMask(1+lagAbs:end) & validMask(1:end-lagAbs));
     end
 end
 

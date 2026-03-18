@@ -1454,6 +1454,8 @@ function configure_attention(subPath)
         'Position', [670, 80, 705, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/scorev_valid_z'], ...
         'InitialCondition', '0', 'Position', [730, 130, 760, 155]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/scorev_valid_out_z'], ...
+        'InitialCondition', '0', 'Position', [780, 130, 810, 155]);
     add_block('simulink/Math Operations/Product', [subPath '/output_valid_gate'], ...
         'Inputs', '**', 'Position', [730, 80, 765, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/scorev_stage_z'], ...
@@ -1532,8 +1534,9 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'value_weight/1', 'scorev_reduce/1');
     safe_add_line(subPath, 'scorev_den/1', 'scorev_reduce/2');
     safe_add_line(subPath, 'scorev_input_valid/1', 'scorev_valid_z/1');
+    safe_add_line(subPath, 'scorev_valid_z/1', 'scorev_valid_out_z/1');
     safe_add_line(subPath, 'scorev_reduce/1', 'output_valid_gate/1');
-    safe_add_line(subPath, 'scorev_valid_z/1', 'output_valid_gate/2');
+    safe_add_line(subPath, 'scorev_valid_out_z/1', 'output_valid_gate/2');
     safe_add_line(subPath, 'output_valid_gate/1', 'scorev_stage_z/1');
     safe_add_line(subPath, 'scorev_stage_z/1', 'y_out/1');
 
@@ -1574,12 +1577,20 @@ function configure_ffn_swiglu(subPath)
         'Operator', 'AND', 'Position', [210, 20, 240, 45]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_z'], ...
         'InitialCondition', '0', 'Position', [265, 20, 295, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_gate_z1'], ...
+        'InitialCondition', '0', 'Position', [320, 20, 350, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_gate_z2'], ...
+        'InitialCondition', '0', 'Position', [375, 20, 405, 45]);
     add_block('simulink/Math Operations/Product', [subPath '/gate_norm_gate'], ...
         'Inputs', '**', 'Position', [400, 85, 435, 135]);
     add_block('simulink/Math Operations/Product', [subPath '/swiglu_mul'], ...
         'Inputs', '**', 'Position', [430, 70, 465, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_z'], ...
         'InitialCondition', '0', 'Position', [490, 20, 520, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_gate_z1'], ...
+        'InitialCondition', '0', 'Position', [545, 20, 575, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_gate_z2'], ...
+        'InitialCondition', '0', 'Position', [600, 20, 630, 45]);
     add_block('simulink/Math Operations/Product', [subPath '/swiglu_stage_gate'], ...
         'Inputs', '**', 'Position', [500, 115, 535, 145]);
     add_block('simulink/Math Operations/Gain', [subPath '/down_proj'], ...
@@ -1608,18 +1619,22 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'rsp_sel/2', 'gateup_pair_valid/1');
     safe_add_line(subPath, 'rsp_sel/4', 'gateup_pair_valid/2');
     safe_add_line(subPath, 'gateup_pair_valid/1', 'gateup_pair_valid_z/1');
+    safe_add_line(subPath, 'gateup_pair_valid_z/1', 'gateup_pair_valid_gate_z1/1');
+    safe_add_line(subPath, 'gateup_pair_valid_gate_z1/1', 'gateup_pair_valid_gate_z2/1');
     safe_add_line(subPath, gateOut, 'gate_abs/1');
     safe_add_line(subPath, 'gate_abs/1', 'gate_den/1');
     safe_add_line(subPath, 'one_const/1', 'gate_den/2');
     safe_add_line(subPath, gateOut, 'gate_norm/1');
     safe_add_line(subPath, 'gate_den/1', 'gate_norm/2');
     safe_add_line(subPath, 'gate_norm/1', 'gate_norm_gate/1');
-    safe_add_line(subPath, 'gateup_pair_valid_z/1', 'gate_norm_gate/2');
+    safe_add_line(subPath, 'gateup_pair_valid_gate_z2/1', 'gate_norm_gate/2');
     safe_add_line(subPath, upOut, 'swiglu_mul/1');
     safe_add_line(subPath, 'gate_norm_gate/1', 'swiglu_mul/2');
     safe_add_line(subPath, 'gateup_pair_valid_z/1', 'swiglu_valid_z/1');
+    safe_add_line(subPath, 'swiglu_valid_z/1', 'swiglu_valid_gate_z1/1');
+    safe_add_line(subPath, 'swiglu_valid_gate_z1/1', 'swiglu_valid_gate_z2/1');
     safe_add_line(subPath, 'swiglu_mul/1', 'swiglu_stage_gate/1');
-    safe_add_line(subPath, 'swiglu_valid_z/1', 'swiglu_stage_gate/2');
+    safe_add_line(subPath, 'swiglu_valid_gate_z2/1', 'swiglu_stage_gate/2');
     safe_add_line(subPath, 'swiglu_stage_gate/1', 'down_proj/1');
     safe_add_line(subPath, 'swiglu_valid_z/1', 'down_valid_z/1');
     safe_add_line(subPath, 'down_proj/1', 'down_stage_gate/1');
