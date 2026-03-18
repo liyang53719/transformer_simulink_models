@@ -52,7 +52,13 @@ function result = run_stage2_kv_cache_boundary_smoke(rootDir, options)
         'axi_master_rd_u/5', 'kv_mem_rd_valid/1';
         'axi_master_wr_u/2', 'kv_mem_wr_addr/1';
         'axi_master_wr_u/3', 'kv_mem_wr_len/1';
-        'axi_master_wr_u/4', 'kv_mem_wr_valid/1'};
+        'axi_master_wr_u/4', 'kv_mem_wr_valid/1';
+        'kv_cache_if_u/2', 'kv_cache_wr_data/1';
+        'kv_cache_if_u/3', 'kv_cache_wr_en/1'};
+
+    forbiddenEdges = {
+        'kv_cache_rd_data/1', 'kv_cache_wr_data/1';
+        'kv_cache_rd_valid/1', 'kv_cache_wr_en/1'};
 
     missingEdges = {};
     for i = 1:size(requiredEdges, 1)
@@ -61,12 +67,20 @@ function result = run_stage2_kv_cache_boundary_smoke(rootDir, options)
         end
     end
 
+    forbiddenPresent = {};
+    for i = 1:size(forbiddenEdges, 1)
+        if has_connection(mdlName, forbiddenEdges{i, 1}, forbiddenEdges{i, 2})
+            forbiddenPresent{end+1} = sprintf('%s -> %s', forbiddenEdges{i, 1}, forbiddenEdges{i, 2}); %#ok<AGROW>
+        end
+    end
+
     result = struct();
     result.missing_kv_inports = missingKvInports;
     result.missing_kv_outports = missingKvOutports;
     result.missing_edges = missingEdges;
+    result.forbidden_edges = forbiddenPresent;
     result.kv_boundary_ok = isempty(missingKvInports) && isempty(missingKvOutports);
-    result.top_connectivity_ok = isempty(missingEdges);
+    result.top_connectivity_ok = isempty(missingEdges) && isempty(forbiddenPresent);
     result.pass = result.kv_boundary_ok && result.top_connectivity_ok;
 
     close_system(mdlName, 0);
@@ -85,6 +99,12 @@ function result = run_stage2_kv_cache_boundary_smoke(rootDir, options)
             fprintf('  Missing boundary/top edges:\n');
             for i = 1:numel(missingEdges)
                 fprintf('    - %s\n', missingEdges{i});
+            end
+        end
+        if ~isempty(forbiddenPresent)
+            fprintf('  Forbidden placeholder edges still present:\n');
+            for i = 1:numel(forbiddenPresent)
+                fprintf('    - %s\n', forbiddenPresent{i});
             end
         end
         error('run_stage2_kv_cache_boundary_smoke:Failed', ...

@@ -18,6 +18,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rebuildEachCase = false;
 
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
+    rModelSelfInit = run_stage2_model_self_init_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
     rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', rebuildEachCase));
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
@@ -36,6 +37,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rDecodeVariant = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgVariant));
 
     summary = struct();
+    summary.model_self_init = rModelSelfInit;
     summary.default_decode = rDecodeDefault;
     summary.default_weight_path = rWeightPath;
     summary.default_kv_boundary = rKvBoundary;
@@ -49,7 +51,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_axi_rd = rAxiRd;
     summary.default_axi_wr = rAxiWr;
     summary.variant_decode = rDecodeVariant;
-    summary.pass = rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
+    summary.pass = rModelSelfInit.pass && rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rKvBanking.pass && ...
         rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && ...

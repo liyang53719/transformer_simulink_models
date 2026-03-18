@@ -62,8 +62,8 @@ function result = run_stage2_top_kv_io_tb_smoke(rootDir, options)
     kvWrData = extract_signal(yout, 'kv_cache_wr_data');
     kvWrEn = extract_signal(yout, 'kv_cache_wr_en');
 
-    expectedWrData = repmat(7, size(kvWrData));
-    expectedWrEn = repmat(1, size(kvWrEn));
+    noLoopbackData = ~all(abs(kvWrData - 7) < 1e-9);
+    noLoopbackEn = ~all(abs(kvWrEn - 1) < 1e-9);
 
     result = struct();
     result.tb_ready = true;
@@ -71,11 +71,11 @@ function result = run_stage2_top_kv_io_tb_smoke(rootDir, options)
     result.kv_wr_valid_seen = any(kvWrValid > 0.5);
     result.kv_rd_addr_nonzero = any(kvRdAddr > 0);
     result.kv_wr_addr_nonzero = any(kvWrAddr > 0);
-    result.kv_cache_loopback_data_ok = all(abs(kvWrData - expectedWrData) < 1e-9);
-    result.kv_cache_loopback_en_ok = all(abs(kvWrEn - expectedWrEn) < 1e-9);
+    result.kv_cache_not_loopback_data = noLoopbackData;
+    result.kv_cache_not_loopback_en = noLoopbackEn;
     result.pass = result.kv_rd_valid_seen && result.kv_wr_valid_seen && ...
         result.kv_rd_addr_nonzero && result.kv_wr_addr_nonzero && ...
-        result.kv_cache_loopback_data_ok && result.kv_cache_loopback_en_ok;
+        result.kv_cache_not_loopback_data && result.kv_cache_not_loopback_en;
 
     close_system(mdlName, 0);
 
