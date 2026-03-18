@@ -1724,9 +1724,9 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     safe_add_line(subPath, [sramValid '/1'], [reqNeeded '/1']);
     safe_add_line(subPath, [reqNeeded '/1'], [reqValidCast '/1']);
 
-    % Simple Dual Port RAM expected ports: wr_addr, din, we, rd_addr -> dout.
-    safe_add_line(subPath, [reqAddrCast '/1'], [sram '/1']);
-    safe_add_line(subPath, [ddrDataCast '/1'], [sram '/2']);
+    % Simple Dual Port RAM expected ports: din, wr_addr, we, rd_addr -> dout.
+    safe_add_line(subPath, [ddrDataCast '/1'], [sram '/1']);
+    safe_add_line(subPath, [reqAddrCast '/1'], [sram '/2']);
     safe_add_line(subPath, [ddrValidCast '/1'], [sram '/3']);
     safe_add_line(subPath, [reqAddrCast '/1'], [sram '/4']);
 
