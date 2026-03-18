@@ -147,6 +147,13 @@ function yes = matches_tagged_response(reqAddr, rspData, signature)
 end
 
 function signature = weight_rsp_signature(cfg, tagIndex)
+    laneOffsets = getFieldOr(cfg, 'lane_offsets', []);
+    if isnumeric(laneOffsets) && numel(laneOffsets) >= (tagIndex + 1)
+        laneOffset = double(laneOffsets(tagIndex + 1));
+    else
+        laneOffset = 0;
+    end
     signature = double(getFieldOr(cfg, 'tag_base', 0)) + ...
-        double(tagIndex) * double(getFieldOr(cfg, 'tag_stride', 8));
+        double(tagIndex) * double(getFieldOr(cfg, 'tag_stride', 8)) + ...
+        laneOffset;
 end

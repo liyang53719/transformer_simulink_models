@@ -29,6 +29,8 @@
 - 验证通过：`run_stage2_ffn_pipeline_smoke`、`run_stage2_smoke_suite_fast`、`run_m1_real_reference_regression('module_awq','EnableMemoryMetrics',true,'RunStage2FastSmoke',true)`。
 - `qkv_proj_u` 已从固定 `group_idx=0` 的占位流，推进为 K/V 先配对、Q 随后进入 fused QKV issue 阶段的内部 staged-valid 结构；`QkvStreamBus.group_idx` 也改为由 `q_valid + 2 * kv_valid` 驱动，用来显式表达 fused Q+KV 共享权重池语义。
 - 新增 `run_stage2_qkv_pipeline_smoke`，直接记录 `qkv_proj_u` 内部 `kv_pair_valid -> fused_qkv_valid` 的阶段链路与 `group_idx` 组合语义。
+- `weight_ref_u` 现已支持 per-lane `lane_offsets`，可以在保留现有 `tag_base/tag_stride` 主体机制的同时，把真实参数派生签名灌入指定权重响应槽位。
+- 新增 `derive_real_weight_rsp_config` 和 `run_stage2_real_layer0_attention_weight_smoke`，从 `matlab_ref/cache/Qwen2.5-1_params.mat` 提取第一层真实权重字段，为 attention/qkv/ffn/gamma 生成真实 layer0 派生签名，并用 wrapper 主线验证这些签名已真正进入外部响应链。
 - 下一步：继续把 QKV/weight responder 的地址布局，从当前 staged-valid 与 group 语义推进到更接近真实 offline-concat 页布局和 weight-stationary 分段映射。
 
 ### 2026-03-17

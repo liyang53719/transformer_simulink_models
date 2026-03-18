@@ -71,7 +71,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     add_block('simulink/Ports & Subsystems/Model', [tbName '/dut'], ...
         'ModelName', dutName, 'Position', [500, 180, 760, 520]);
     configure_soc_style_ddr_ref([tbName '/ddr_ref_u']);
-    configure_weight_rsp_ref([tbName '/weight_ref_u']);
+    configure_weight_rsp_ref([tbName '/weight_ref_u'], weightRspCfg);
 
     build_typed_sources(tbName, dutName, inports);
     build_weight_rsp_cfg_sources(tbName, weightRspCfg);
@@ -263,7 +263,10 @@ function configure_soc_style_ddr_ref(subPath)
     add_line(subPath, 'Output Write Memory/1', 'wr_ready/1', 'autorouting', 'on');
 end
 
-function configure_weight_rsp_ref(subPath)
+function configure_weight_rsp_ref(subPath, weightRspCfg)
+    if nargin < 2 || ~isstruct(weightRspCfg)
+        weightRspCfg = struct();
+    end
     add_block('simulink/Ports & Subsystems/Subsystem', subPath, 'Position', [780, 500, 930, 690]);
     Simulink.SubSystem.deleteContents(subPath);
 
@@ -312,10 +315,15 @@ function configure_weight_rsp_ref(subPath)
             'Inputs', '**', 'Position', [405, baseY + 2, 440, baseY + 24]);
         add_block('simulink/Math Operations/Add', [subPath '/tag_sum_' num2str(i)], ...
             'Inputs', '++', 'Position', [455, baseY + 2, 490, baseY + 24]);
+        add_block('simulink/Sources/Constant', [subPath '/lane_offset_' num2str(i)], ...
+            'Value', num2str(resolve_weight_rsp_lane_offset(weightRspCfg, i)), ...
+            'Position', [455, baseY + 28, 490, baseY + 44]);
+        add_block('simulink/Math Operations/Add', [subPath '/tag_lane_sum_' num2str(i)], ...
+            'Inputs', '++', 'Position', [505, baseY - 2, 540, baseY + 20]);
         add_block('simulink/Math Operations/Add', [subPath '/data_page_tag_' num2str(i)], ...
-            'Inputs', '++', 'Position', [505, baseY + 8, 540, baseY + 30]);
+            'Inputs', '++', 'Position', [555, baseY + 8, 590, baseY + 30]);
         add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/data_u8_' num2str(i)], ...
-            'OutDataTypeStr', 'uint8', 'Position', [555, baseY + 8, 585, baseY + 30]);
+            'OutDataTypeStr', 'uint8', 'Position', [605, baseY + 8, 635, baseY + 30]);
 
         reqAddrPort = 2 * i - 1;
         reqValidPort = 2 * i;
@@ -334,13 +342,24 @@ function configure_weight_rsp_ref(subPath)
         add_line(subPath, ['tag_idx_' num2str(i) '/1'], ['tag_stride_mul_' num2str(i) '/2'], 'autorouting', 'on');
         add_line(subPath, 'cfg_tag_base/1', ['tag_sum_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['tag_stride_mul_' num2str(i) '/1'], ['tag_sum_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, ['tag_sum_' num2str(i) '/1'], ['tag_lane_sum_' num2str(i) '/1'], 'autorouting', 'on');
+        add_line(subPath, ['lane_offset_' num2str(i) '/1'], ['tag_lane_sum_' num2str(i) '/2'], 'autorouting', 'on');
         add_line(subPath, ['addr_d2_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/1'], 'autorouting', 'on');
-        add_line(subPath, ['tag_sum_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/2'], 'autorouting', 'on');
+        add_line(subPath, ['tag_lane_sum_' num2str(i) '/1'], ['data_page_tag_' num2str(i) '/2'], 'autorouting', 'on');
         add_line(subPath, ['data_page_tag_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
         add_line(subPath, ['data_u8_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)], 'autorouting', 'on');
         add_line(subPath, ['val_d2_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValidPort)], 'autorouting', 'on');
         set_line_name_by_dst_port(subPath, 'rsp_bc', rspDataPort, strrep(reqAddrName, '_addr', '_data'));
         set_line_name_by_dst_port(subPath, 'rsp_bc', rspValidPort, reqValidName);
+    end
+end
+
+function value = resolve_weight_rsp_lane_offset(weightRspCfg, laneIndex)
+    offsets = getFieldOr(weightRspCfg, 'lane_offsets', []);
+    if isnumeric(offsets) && numel(offsets) >= laneIndex
+        value = double(offsets(laneIndex));
+    else
+        value = 0;
     end
 end
 
