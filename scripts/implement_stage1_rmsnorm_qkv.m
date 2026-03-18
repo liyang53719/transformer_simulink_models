@@ -1647,6 +1647,14 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     sram = [prefix '_sram'];
     ddrDataCast = [prefix '_ddr_data_u8'];
     ddrValidCast = [prefix '_ddr_valid_bool'];
+    sramAddrAlias = [prefix '_sram_addr_alias'];
+    sramDinAlias = [prefix '_sram_din_alias'];
+    sramWeAlias = [prefix '_sram_we_alias'];
+    sramDoutAlias = [prefix '_sram_dout_alias'];
+    sramAddrTerm = [prefix '_sram_addr_term'];
+    sramDinTerm = [prefix '_sram_din_term'];
+    sramWeTerm = [prefix '_sram_we_term'];
+    sramDoutTerm = [prefix '_sram_dout_term'];
     sramDataCast = [prefix '_sram_data_double'];
     sramValid = [prefix '_sram_data_valid_z'];
     sramSel = [prefix '_sram_data_sel'];
@@ -1673,8 +1681,24 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
         'OutDataTypeStr', 'uint8', 'Position', [x0 + 55, y0 + 45, x0 + 90, y0 + 65]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' ddrValidCast], ...
         'OutDataTypeStr', 'boolean', 'Position', [x0 + 55, y0 + 75, x0 + 90, y0 + 95]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramAddrAlias], ...
+        'OutDataTypeStr', 'double', 'Position', [x0 + 145, y0 - 35, x0 + 185, y0 - 15]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDinAlias], ...
+        'OutDataTypeStr', 'double', 'Position', [x0 + 55, y0 + 5, x0 + 95, y0 + 25]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramWeAlias], ...
+        'OutDataTypeStr', 'double', 'Position', [x0 + 55, y0 + 105, x0 + 95, y0 + 125]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDataCast], ...
         'OutDataTypeStr', 'double', 'Position', [x0 + 180, y0 + 45, x0 + 215, y0 + 65]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDoutAlias], ...
+        'OutDataTypeStr', 'double', 'Position', [x0 + 180, y0 + 5, x0 + 215, y0 + 25]);
+    add_block('simulink/Sinks/Terminator', [subPath '/' sramAddrTerm], ...
+        'Position', [x0 + 205, y0 - 35, x0 + 225, y0 - 15]);
+    add_block('simulink/Sinks/Terminator', [subPath '/' sramDinTerm], ...
+        'Position', [x0 + 115, y0 + 5, x0 + 135, y0 + 25]);
+    add_block('simulink/Sinks/Terminator', [subPath '/' sramWeTerm], ...
+        'Position', [x0 + 115, y0 + 105, x0 + 135, y0 + 125]);
+    add_block('simulink/Sinks/Terminator', [subPath '/' sramDoutTerm], ...
+        'Position', [x0 + 235, y0 + 5, x0 + 255, y0 + 25]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/' sramValid], ...
         'InitialCondition', '0', 'Position', [x0 + 180, y0 + 70, x0 + 210, y0 + 90]);
     add_block('simulink/Signal Routing/Switch', [subPath '/' sramSel], ...
@@ -1688,8 +1712,14 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     safe_add_line(subPath, reqAddrSig, [reqAddrCast '/1']);
     safe_add_line(subPath, [reqAddrCast '/1'], [reqAddrOutCast '/1']);
     safe_add_line(subPath, [reqAddrOutCast '/1'], [reqAddrDelay '/1']);
+    safe_add_line(subPath, [reqAddrCast '/1'], [sramAddrAlias '/1']);
     safe_add_line(subPath, ddrDataSig, [ddrDataCast '/1']);
     safe_add_line(subPath, ddrValidSig, [ddrValidCast '/1']);
+    safe_add_line(subPath, [ddrDataCast '/1'], [sramDinAlias '/1']);
+    safe_add_line(subPath, [ddrValidCast '/1'], [sramWeAlias '/1']);
+    safe_add_line(subPath, [sramAddrAlias '/1'], [sramAddrTerm '/1']);
+    safe_add_line(subPath, [sramDinAlias '/1'], [sramDinTerm '/1']);
+    safe_add_line(subPath, [sramWeAlias '/1'], [sramWeTerm '/1']);
 
     safe_add_line(subPath, [sramValid '/1'], [reqNeeded '/1']);
     safe_add_line(subPath, [reqNeeded '/1'], [reqValidCast '/1']);
@@ -1701,6 +1731,8 @@ function [mulOut, reqAddrOutSig, reqValidOutSig] = add_streamed_weight_mul(subPa
     safe_add_line(subPath, [reqAddrCast '/1'], [sram '/4']);
 
     safe_add_line(subPath, [sram '/1'], [sramDataCast '/1']);
+    safe_add_line(subPath, [sram '/1'], [sramDoutAlias '/1']);
+    safe_add_line(subPath, [sramDoutAlias '/1'], [sramDoutTerm '/1']);
     safe_add_line(subPath, [sramDataCast '/1'], [sramSel '/1']);
     safe_add_line(subPath, [sramValid '/1'], [sramSel '/2']);
     safe_add_line(subPath, [defaultConst '/1'], [sramSel '/3']);
