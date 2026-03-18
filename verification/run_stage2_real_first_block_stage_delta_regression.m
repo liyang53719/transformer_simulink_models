@@ -67,9 +67,11 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
         fprintf('  internal_delta_seen=%d output_delta_seen=%d delta_localized=%d changed_stage_count=%d\n', ...
             result.internal_delta_seen, result.output_delta_seen, result.delta_localized, result.changed_stage_count);
         for i = 1:numel(stageResults)
-            fprintf('  %s changed=%d max_abs_diff=%g mean_abs_diff=%g\n', ...
-                stageResults(i).name, stageResults(i).changed, ...
-                stageResults(i).max_abs_diff, stageResults(i).mean_abs_diff);
+            if stageResults(i).changed
+                fprintf('  %s changed=%d max_abs_diff=%g mean_abs_diff=%g\n', ...
+                    stageResults(i).name, stageResults(i).changed, ...
+                    stageResults(i).max_abs_diff, stageResults(i).mean_abs_diff);
+            end
         end
         fprintf('  out_hidden changed=%d max_abs_diff=%g mean_abs_diff=%g\n', ...
             outHiddenCmp.changed, outHiddenCmp.max_abs_diff, outHiddenCmp.mean_abs_diff);
@@ -85,13 +87,43 @@ end
 
 function signalSpecs = build_signal_specs()
     signalSpecs = {
-        struct('block', 'rmsnorm_u/gamma_sram', 'port', 1, 'name', 'stage_gamma_sram'), ...
-        struct('block', 'qkv_proj_u/q_sram', 'port', 1, 'name', 'stage_qkv_q_sram'), ...
-        struct('block', 'attention_u/q_sram', 'port', 1, 'name', 'stage_attn_q_sram'), ...
-        struct('block', 'attention_u/v_sram', 'port', 1, 'name', 'stage_attn_v_sram'), ...
-        struct('block', 'attention_u/row_sum_accum', 'port', 1, 'name', 'stage_attn_row_sum_accum'), ...
-        struct('block', 'ffn_swiglu_u/up_sram', 'port', 1, 'name', 'stage_ffn_up_sram'), ...
-        struct('block', 'ffn_swiglu_u/gate_sram', 'port', 1, 'name', 'stage_ffn_gate_sram')};
+        struct('block', 'attention_u/row_sum_accum', 'port', 1, 'name', 'stage_attn_row_sum_accum')};
+
+    signalSpecs = [signalSpecs, append_weight_lane_specs('rmsnorm_u', 'gamma')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('qkv_proj_u', 'q')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('qkv_proj_u', 'k')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('qkv_proj_u', 'v')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('attention_u', 'q')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('attention_u', 'k')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('attention_u', 'v')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'up')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'gate')]; %#ok<AGROW>
+end
+
+function specs = append_weight_lane_specs(moduleName, prefix)
+    baseName = ['stage_' module_alias(moduleName) '_' prefix];
+    specs = { ...
+        struct('block', [moduleName '/' prefix '_ddr_data_u8'], 'port', 1, 'name', [baseName '_ddr_data_u8']), ...
+        struct('block', [moduleName '/' prefix '_req_needed'], 'port', 1, 'name', [baseName '_req_needed']), ...
+        struct('block', [moduleName '/' prefix '_sram'], 'port', 1, 'name', [baseName '_sram']), ...
+        struct('block', [moduleName '/' prefix '_sram_data_double'], 'port', 1, 'name', [baseName '_sram_data_double']), ...
+        struct('block', [moduleName '/' prefix '_sram_data_valid_z'], 'port', 1, 'name', [baseName '_sram_data_valid_z']), ...
+        struct('block', [moduleName '/' prefix '_sram_data_sel'], 'port', 1, 'name', [baseName '_sram_data_sel'])};
+end
+
+function alias = module_alias(moduleName)
+    switch moduleName
+        case 'rmsnorm_u'
+            alias = 'rms';
+        case 'qkv_proj_u'
+            alias = 'qkv';
+        case 'attention_u'
+            alias = 'attn';
+        case 'ffn_swiglu_u'
+            alias = 'ffn';
+        otherwise
+            alias = moduleName;
+    end
 end
 
 function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleValues, signalSpecs)
