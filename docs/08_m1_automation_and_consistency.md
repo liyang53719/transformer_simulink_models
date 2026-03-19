@@ -28,6 +28,7 @@
 - `scripts.run_m1_real_reference_regression('module_awq', 'EnableMemoryMetrics', true)`
 - `scripts.run_m1_real_reference_regression('module_gptq', 'EnableMemoryMetrics', true)`
 - `scripts.run_m1_real_reference_regression('module_gguf', 'EnableMemoryMetrics', true)`
+- `scripts.run_m1_real_reference_regression('all', 'EnableMemoryMetrics', true, 'ContinueOnError', true)`
 
 ## 4. 通过标准
 - 占位模型创建成功并通过一致性检查。
@@ -55,6 +56,8 @@
 - 通过 `run_m1_real_reference_regression(paramsFile)` 可优先尝试接入已有 `+qwen2` / `+qwen2_quant` 的 block 实现。
 - 若 MATLAB path 或参数结构不满足要求，会自动报错提示并可退回 placeholder 模式。
 - 支持 module 别名输入：`module_awq`、`module_gptq`、`module_gguf`，自动映射到 `matlab_ref/module` 下对应目录。
+- 支持批量 module 输入：`'all'`、`'all_modules'`、string array、cell array。
+- 批量模式会额外产出聚合 JSON 与 Markdown 汇总报告；Markdown 汇总默认写入 `verification/reports/`。
 
 ## 7. 报告字段约定（新增）
 最小回归 JSON 报告在保持原字段兼容的前提下新增：
