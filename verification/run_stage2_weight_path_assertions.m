@@ -19,7 +19,6 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
     require_blocks(mdlName, {
         [mdlName '/weight_addr_map_u'], ...
         [mdlName '/prefill_sched_u'], ...
-        [mdlName '/axi_weight_rd_u'], ...
         [mdlName '/w_req_bc'], ...
         [mdlName '/rms_addr_bc'], ...
         [mdlName '/qkv_addr_bc'], ...
@@ -44,15 +43,12 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
     require_edge(mdlName, 'prefill_sched_u/6', 'kv_cache_if_u/6');
     require_edge(mdlName, 'prefill_sched_u/8', 'kv_cache_if_u/7');
     require_edge(mdlName, 'qkv_proj_u/1', 'kv_cache_if_u/1');
-    require_edge(mdlName, 'rms_req_sel/1', 'axi_weight_rd_u/1');
-    weightRspSrc = 'axi_weight_rd_u/1';
-    if ~isempty(find_system(mdlName, 'SearchDepth', 1, 'BlockType', 'Inport', 'Name', 'w_rd_rsp_bus'))
-        weightRspSrc = 'w_rd_rsp_bus/1';
-    end
-    require_edge(mdlName, weightRspSrc, 'rmsnorm_u/3');
-    require_edge(mdlName, weightRspSrc, 'qkv_proj_u/2');
-    require_edge(mdlName, weightRspSrc, 'attention_u/2');
-    require_edge(mdlName, weightRspSrc, 'ffn_swiglu_u/2');
+    require_inport(mdlName, 'w_rd_rsp_bus');
+    require_no_block([mdlName '/axi_weight_rd_u']);
+    require_edge(mdlName, 'w_rd_rsp_bus/1', 'rmsnorm_u/3');
+    require_edge(mdlName, 'w_rd_rsp_bus/1', 'qkv_proj_u/2');
+    require_edge(mdlName, 'w_rd_rsp_bus/1', 'attention_u/2');
+    require_edge(mdlName, 'w_rd_rsp_bus/1', 'ffn_swiglu_u/2');
 
     % First-load + cache-hit semantics are enforced by req_needed = NOT(sram_valid)
     % and mux select by sram_valid inside each stream helper.
@@ -76,6 +72,18 @@ function require_blocks(~, paths)
         if getSimulinkBlockHandle(paths{i}) == -1
             error('run_stage2_weight_path_assertions:MissingBlock', 'Missing block: %s', paths{i});
         end
+    end
+end
+
+function require_no_block(path)
+    if getSimulinkBlockHandle(path) ~= -1
+        error('run_stage2_weight_path_assertions:UnexpectedBlock', 'Unexpected block still present: %s', path);
+    end
+end
+
+function require_inport(sys, name)
+    if isempty(find_system(sys, 'SearchDepth', 1, 'BlockType', 'Inport', 'Name', name))
+        error('run_stage2_weight_path_assertions:MissingInport', 'Missing inport: %s/%s', sys, name);
     end
 end
 

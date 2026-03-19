@@ -54,10 +54,9 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
         configure_ddr_model_if([mdlName '/ddr_model_if_u']);
         configure_weight_addr_map([mdlName '/weight_addr_map_u']);
         configure_prefill_scheduler([mdlName '/prefill_sched_u'], prefillCfg);
-        configure_axi_weight_rd([mdlName '/axi_weight_rd_u']);
     end
 
-    build_prefill_path(mdlName, stageProfile, useExternalWeightRsp);
+    build_prefill_path(mdlName, stageProfile);
     build_decode_path(mdlName, stageProfile);
     build_kv_memory_stubs(mdlName, stageProfile);
     terminate_unused_stage2_ports(mdlName, stageProfile, useExternalWeightRsp);
@@ -122,7 +121,7 @@ function cfg = resolve_prefill_schedule_config(rootDir, options)
     cfg = prefill_attention_schedule_32x32();
 end
 
-function build_prefill_path(mdlName, stageProfile, useExternalWeightRsp)
+function build_prefill_path(mdlName, stageProfile)
     safe_add_line(mdlName, 'in_hidden/1', 'rope_u/1');
     safe_add_line(mdlName, 'cfg_token_pos/1', 'rope_u/2');
     force_add_line(mdlName, 'rope_u/1', 'rmsnorm_u/1');
@@ -157,17 +156,10 @@ function build_prefill_path(mdlName, stageProfile, useExternalWeightRsp)
         force_add_line(mdlName, 'ffn_addr_bc/1', 'ffn_swiglu_u/3');
 
         % Shared response bus distributed to each module; wrapper mode can source it externally.
-        if useExternalWeightRsp
-            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'rmsnorm_u/3');
-            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'qkv_proj_u/2');
-            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'attention_u/2');
-            force_add_line(mdlName, 'w_rd_rsp_bus/1', 'ffn_swiglu_u/2');
-        else
-            force_add_line(mdlName, 'axi_weight_rd_u/1', 'rmsnorm_u/3');
-            force_add_line(mdlName, 'axi_weight_rd_u/1', 'qkv_proj_u/2');
-            force_add_line(mdlName, 'axi_weight_rd_u/1', 'attention_u/2');
-            force_add_line(mdlName, 'axi_weight_rd_u/1', 'ffn_swiglu_u/2');
-        end
+        force_add_line(mdlName, 'w_rd_rsp_bus/1', 'rmsnorm_u/3');
+        force_add_line(mdlName, 'w_rd_rsp_bus/1', 'qkv_proj_u/2');
+        force_add_line(mdlName, 'w_rd_rsp_bus/1', 'attention_u/2');
+        force_add_line(mdlName, 'w_rd_rsp_bus/1', 'ffn_swiglu_u/2');
 
         add_or_reset_bus_selector(mdlName, 'rms_req_sel', 'gamma_addr,gamma_valid', [1240, 700, 1280, 750]);
         add_or_reset_bus_selector(mdlName, 'qkv_req_sel', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', [1240, 760, 1280, 860]);
@@ -225,26 +217,6 @@ function build_prefill_path(mdlName, stageProfile, useExternalWeightRsp)
         set_line_name_by_src_port(mdlName, 'ffn_req_sel', 5, 'ffn_down_addr');
         set_line_name_by_src_port(mdlName, 'ffn_req_sel', 6, 'ffn_down_valid');
         force_add_line(mdlName, 'w_req_bc/1', 'w_rd_req_bus/1');
-        force_add_line(mdlName, 'rms_req_sel/1', 'axi_weight_rd_u/1');
-        force_add_line(mdlName, 'rms_req_sel/2', 'axi_weight_rd_u/2');
-        force_add_line(mdlName, 'qkv_req_sel/1', 'axi_weight_rd_u/3');
-        force_add_line(mdlName, 'qkv_req_sel/2', 'axi_weight_rd_u/4');
-        force_add_line(mdlName, 'qkv_req_sel/3', 'axi_weight_rd_u/5');
-        force_add_line(mdlName, 'qkv_req_sel/4', 'axi_weight_rd_u/6');
-        force_add_line(mdlName, 'qkv_req_sel/5', 'axi_weight_rd_u/7');
-        force_add_line(mdlName, 'qkv_req_sel/6', 'axi_weight_rd_u/8');
-        force_add_line(mdlName, 'attn_req_sel/1', 'axi_weight_rd_u/9');
-        force_add_line(mdlName, 'attn_req_sel/2', 'axi_weight_rd_u/10');
-        force_add_line(mdlName, 'attn_req_sel/3', 'axi_weight_rd_u/11');
-        force_add_line(mdlName, 'attn_req_sel/4', 'axi_weight_rd_u/12');
-        force_add_line(mdlName, 'attn_req_sel/5', 'axi_weight_rd_u/13');
-        force_add_line(mdlName, 'attn_req_sel/6', 'axi_weight_rd_u/14');
-        force_add_line(mdlName, 'ffn_req_sel/1', 'axi_weight_rd_u/15');
-        force_add_line(mdlName, 'ffn_req_sel/2', 'axi_weight_rd_u/16');
-        force_add_line(mdlName, 'ffn_req_sel/3', 'axi_weight_rd_u/17');
-        force_add_line(mdlName, 'ffn_req_sel/4', 'axi_weight_rd_u/18');
-        force_add_line(mdlName, 'ffn_req_sel/5', 'axi_weight_rd_u/19');
-        force_add_line(mdlName, 'ffn_req_sel/6', 'axi_weight_rd_u/20');
 
         safe_add_line(mdlName, 'cfg_token_pos/1', 'prefill_sched_u/1');
         safe_add_line(mdlName, 'cfg_seq_len/1', 'prefill_sched_u/2');
@@ -329,7 +301,7 @@ function build_kv_memory_stubs(mdlName, stageProfile)
           force_add_line(mdlName, 'axi_master_wr_u/3', 'kv_mem_wr_len/1');
           force_add_line(mdlName, 'axi_master_wr_u/4', 'kv_mem_wr_valid/1');
 
-        % Minimal task-level control placeholders for V2 ports.
+            % Temporary task-level status wiring for V2 ports.
           force_add_line(mdlName, 'ctrl_fsm_u/2', 'busy/1');
           force_add_line(mdlName, 'ctrl_fsm_u/1', 'done/1');
           force_add_line(mdlName, 'ctrl_fsm_u/1', 'irq/1');
@@ -412,7 +384,7 @@ function ensure_memory_subsystems(mdlName)
     ensure_subsystem(mdlName, 'ddr_model_if_u', [980, 650, 1220, 730]);
     ensure_subsystem(mdlName, 'kv_addr_gen_u', [700, 600, 920, 680]);
     ensure_subsystem(mdlName, 'weight_addr_map_u', [700, 720, 980, 820]);
-    ensure_subsystem(mdlName, 'axi_weight_rd_u', [980, 820, 1220, 900]);
+    remove_top_block_if_exists(mdlName, 'axi_weight_rd_u');
 end
 
 function remove_legacy_weight_ports(mdlName)
@@ -450,7 +422,7 @@ function remove_unused_top_level_blocks(mdlName)
     end
 end
 
-function terminate_unused_stage2_ports(mdlName, stageProfile, useExternalWeightRsp)
+function terminate_unused_stage2_ports(mdlName, stageProfile, ~)
     if stageProfile ~= "stage2_memory_ready"
         return;
     end
@@ -467,10 +439,6 @@ function terminate_unused_stage2_ports(mdlName, stageProfile, useExternalWeightR
         'kv_cache_if_u', 5; ...
         'kv_cache_if_u', 6; ...
         'qkv_proj_u', 2};
-
-    if useExternalWeightRsp
-        specs(end + 1, :) = {'axi_weight_rd_u', 1}; %#ok<AGROW>
-    end
 
     for i = 1:size(specs, 1)
         ensure_output_terminator(mdlName, specs{i, 1}, specs{i, 2});
@@ -1148,46 +1116,6 @@ function configure_weight_addr_map(subPath)
     safe_add_line(subPath, 'page_stride/1', 'page_offset/2');
     safe_add_line(subPath, 'page_base/1', 'addr_base_sum/1');
     safe_add_line(subPath, 'page_offset/1', 'addr_base_sum/2');
-end
-
-function configure_axi_weight_rd(subPath)
-    clear_subsystem_contents(subPath);
-
-    reqNames = { ...
-        'gamma_addr', 'gamma_valid', ...
-        'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
-        'attn_q_addr', 'attn_q_valid', 'attn_k_addr', 'attn_k_valid', 'attn_v_addr', 'attn_v_valid', ...
-        'ffn_up_addr', 'ffn_up_valid', 'ffn_gate_addr', 'ffn_gate_valid', 'ffn_down_addr', 'ffn_down_valid'};
-    for i = 1:numel(reqNames)
-        y = 20 + 16 * (i - 1);
-        add_block('simulink/Sources/In1', [subPath '/' reqNames{i}], 'Position', [20, y, 50, y + 14]);
-    end
-    add_or_reset_bus_creator(subPath, 'rsp_bc', 20, [430, 20, 470, 360], 'WeightRspBus');
-    try
-        set_param([subPath '/rsp_bc'], 'InputSignalNames', ...
-            'gamma_data,gamma_valid,qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid,attn_q_data,attn_q_valid,attn_k_data,attn_k_valid,attn_v_data,attn_v_valid,ffn_up_data,ffn_up_valid,ffn_gate_data,ffn_gate_valid,ffn_down_data,ffn_down_valid');
-    catch
-    end
-    add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [430, 120, 460, 134], ...
-        'OutDataTypeStr', 'Bus: WeightRspBus');
-
-    safe_add_line(subPath, 'rsp_bc/1', 'rsp_bus/1');
-
-    for i = 1:10
-        baseY = 20 + 30 * (i - 1);
-        add_block('simulink/Sources/Constant', [subPath '/rsp_zero_' num2str(i)], ...
-            'Value', 'uint8(0)', 'OutDataTypeStr', 'uint8', 'Position', [360, baseY + 10, 430, baseY + 30]);
-        add_block('simulink/Sources/Constant', [subPath '/rsp_invalid_' num2str(i)], ...
-            'Value', 'false', 'OutDataTypeStr', 'boolean', 'Position', [360, baseY + 35, 430, baseY + 55]);
-
-        rspDataPort = 2 * i - 1;
-        rspValPort = 2 * i;
-
-        safe_add_line(subPath, ['rsp_zero_' num2str(i) '/1'], ['rsp_bc/' num2str(rspDataPort)]);
-        safe_add_line(subPath, ['rsp_invalid_' num2str(i) '/1'], ['rsp_bc/' num2str(rspValPort)]);
-        set_line_name_by_dst_port(subPath, 'rsp_bc', rspDataPort, strrep(reqNames{2 * i - 1}, '_addr', '_data'));
-        set_line_name_by_dst_port(subPath, 'rsp_bc', rspValPort, reqNames{2 * i});
-    end
 end
 
 function add_or_reset_bus_creator(sys, name, n, pos, busObj)
@@ -1999,7 +1927,7 @@ function arrange_model_systems(mdlName, stageProfile)
     if stageProfile == "stage2_memory_ready"
         targets = [targets, { ...
             [mdlName '/prefill_sched_u'], ...
-            [mdlName '/axi_weight_rd_u'], [mdlName '/weight_addr_map_u'], ...
+            [mdlName '/weight_addr_map_u'], ...
             [mdlName '/axi_master_rd_u'], [mdlName '/axi_master_wr_u'], ...
             [mdlName '/kv_addr_gen_u'], [mdlName '/ddr_model_if_u']}];
     end
