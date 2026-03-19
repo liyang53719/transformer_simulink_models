@@ -11,12 +11,8 @@ function result = run_stage2_prefill_attention_functional_smoke(rootDir, options
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
-
-    addpath(fullfile(rootDir, 'scripts'));
-    if buildModel
-        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready'));
-    end
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(mdlPath);

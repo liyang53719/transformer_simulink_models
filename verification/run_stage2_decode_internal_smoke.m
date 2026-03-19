@@ -13,13 +13,11 @@ function result = run_stage2_decode_internal_smoke(rootDir, options)
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
-    if buildModel
-        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', kvCfg));
-    end
 
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     load_system(mdlPath);

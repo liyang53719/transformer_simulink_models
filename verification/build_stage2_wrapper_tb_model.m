@@ -279,13 +279,14 @@ function configure_weight_rsp_ref(subPath, weightRspCfg)
     add_block('simulink/Sources/In1', [subPath '/cfg_tag_stride'], 'Position', [20, 160, 50, 174]);
     add_block('simulink/Signal Routing/Bus Selector', [subPath '/req_sel'], 'Position', [95, 25, 145, 190]);
     set_param([subPath '/req_sel'], 'OutputSignals', ...
-        'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid');
+        'gamma_addr,gamma_valid,qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid,ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid,ffn_down_addr,ffn_down_valid');
     add_block('simulink/Signal Routing/Bus Creator', [subPath '/rsp_bc'], ...
-        'Position', [505, 25, 545, 295], 'Inputs', '18');
+        'Position', [505, 25, 545, 325], 'Inputs', '20');
+    set_param([subPath '/rsp_bc'], 'Inputs', '20', 'Position', [505, 25, 545, 325]);
     set_param([subPath '/rsp_bc'], 'UseBusObject', 'on', 'BusObject', 'WeightRspBus');
     try
         set_param([subPath '/rsp_bc'], 'InputSignalNames', ...
-            'gamma_data,gamma_valid,qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid,attn_q_data,attn_q_valid,attn_k_data,attn_k_valid,attn_v_data,attn_v_valid,ffn_up_data,ffn_up_valid,ffn_gate_data,ffn_gate_valid');
+            'gamma_data,gamma_valid,qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid,attn_q_data,attn_q_valid,attn_k_data,attn_k_valid,attn_v_data,attn_v_valid,ffn_up_data,ffn_up_valid,ffn_gate_data,ffn_gate_valid,ffn_down_data,ffn_down_valid');
     catch
     end
     add_block('simulink/Sinks/Out1', [subPath '/rsp_bus'], 'Position', [585, 145, 615, 159], ...
@@ -297,8 +298,8 @@ function configure_weight_rsp_ref(subPath, weightRspCfg)
         'gamma_addr', 'gamma_valid', ...
         'qkv_q_addr', 'qkv_q_valid', 'qkv_k_addr', 'qkv_k_valid', 'qkv_v_addr', 'qkv_v_valid', ...
         'attn_q_addr', 'attn_q_valid', 'attn_k_addr', 'attn_k_valid', 'attn_v_addr', 'attn_v_valid', ...
-        'ffn_up_addr', 'ffn_up_valid', 'ffn_gate_addr', 'ffn_gate_valid'};
-    for i = 1:9
+        'ffn_up_addr', 'ffn_up_valid', 'ffn_gate_addr', 'ffn_gate_valid', 'ffn_down_addr', 'ffn_down_valid'};
+    for i = 1:10
         baseY = 25 + 30 * (i - 1);
         add_block('simulink/Sources/Constant', [subPath '/ready_' num2str(i)], ...
             'Value', '1', 'Position', [170, baseY, 200, baseY + 18]);

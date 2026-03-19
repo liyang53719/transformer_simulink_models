@@ -12,7 +12,8 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
@@ -47,6 +48,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     result.attn_v_rsp_ok = matches_constant_response(yout, 'tb_attn_v_rsp_data', 'tb_attn_v_rsp_valid', meta.sample_values(7));
     result.ffn_up_rsp_ok = matches_constant_response(yout, 'tb_ffn_up_rsp_data', 'tb_ffn_up_rsp_valid', meta.sample_values(8));
     result.ffn_gate_rsp_ok = matches_constant_response(yout, 'tb_ffn_gate_rsp_data', 'tb_ffn_gate_rsp_valid', meta.sample_values(9));
+    result.ffn_down_rsp_ok = matches_constant_response(yout, 'tb_ffn_down_rsp_data', 'tb_ffn_down_rsp_valid', meta.sample_values(10));
     result.gamma_addr_ok = matches_request_address(yout, 'tb_gamma_req_addr', 'tb_gamma_req_valid', meta.expected_addrs(1));
     result.qkv_q_addr_ok = matches_request_address(yout, 'tb_qkv_q_req_addr', 'tb_qkv_q_req_valid', meta.expected_addrs(2));
     result.qkv_k_addr_ok = matches_request_address(yout, 'tb_qkv_k_req_addr', 'tb_qkv_k_req_valid', meta.expected_addrs(3));
@@ -56,17 +58,18 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     result.attn_v_addr_ok = matches_request_address(yout, 'tb_attn_v_req_addr', 'tb_attn_v_req_valid', meta.expected_addrs(7));
     result.ffn_up_addr_ok = matches_request_address(yout, 'tb_ffn_up_req_addr', 'tb_ffn_up_req_valid', meta.expected_addrs(8));
     result.ffn_gate_addr_ok = matches_request_address(yout, 'tb_ffn_gate_req_addr', 'tb_ffn_gate_req_valid', meta.expected_addrs(9));
+    result.ffn_down_addr_ok = matches_request_address(yout, 'tb_ffn_down_req_addr', 'tb_ffn_down_req_valid', meta.expected_addrs(10));
     outHidden = double(extract_signal(yout, 'out_hidden'));
     result.out_hidden_nonzero = any(abs(outHidden) > 0);
     result.out_hidden_dynamic = numel(unique(outHidden(:))) > 1;
     result.pass = result.gamma_rsp_ok && ...
         result.qkv_q_rsp_ok && result.qkv_k_rsp_ok && result.qkv_v_rsp_ok && ...
         result.attn_q_rsp_ok && result.attn_k_rsp_ok && result.attn_v_rsp_ok && ...
-        result.ffn_up_rsp_ok && result.ffn_gate_rsp_ok && ...
+        result.ffn_up_rsp_ok && result.ffn_gate_rsp_ok && result.ffn_down_rsp_ok && ...
         result.gamma_addr_ok && ...
         result.qkv_q_addr_ok && result.qkv_k_addr_ok && result.qkv_v_addr_ok && ...
         result.attn_q_addr_ok && result.attn_k_addr_ok && result.attn_v_addr_ok && ...
-        result.ffn_up_addr_ok && result.ffn_gate_addr_ok && ...
+        result.ffn_up_addr_ok && result.ffn_gate_addr_ok && result.ffn_down_addr_ok && ...
         result.out_hidden_nonzero;
 
     if result.pass
@@ -74,16 +77,16 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     else
         fprintf('Stage2 real first-block direct bus regression FAIL\n');
         fprintf(['  gamma_rsp=%d qkv_q_rsp=%d qkv_k_rsp=%d qkv_v_rsp=%d ' ...
-            'attn_q_rsp=%d attn_k_rsp=%d attn_v_rsp=%d ffn_up_rsp=%d ffn_gate_rsp=%d\n'], ...
+            'attn_q_rsp=%d attn_k_rsp=%d attn_v_rsp=%d ffn_up_rsp=%d ffn_gate_rsp=%d ffn_down_rsp=%d\n'], ...
             result.gamma_rsp_ok, result.qkv_q_rsp_ok, result.qkv_k_rsp_ok, result.qkv_v_rsp_ok, ...
             result.attn_q_rsp_ok, result.attn_k_rsp_ok, result.attn_v_rsp_ok, ...
-            result.ffn_up_rsp_ok, result.ffn_gate_rsp_ok);
+            result.ffn_up_rsp_ok, result.ffn_gate_rsp_ok, result.ffn_down_rsp_ok);
         fprintf(['  gamma_addr=%d qkv_q_addr=%d qkv_k_addr=%d qkv_v_addr=%d ' ...
-            'attn_q_addr=%d attn_k_addr=%d attn_v_addr=%d ffn_up_addr=%d ffn_gate_addr=%d ' ...
+            'attn_q_addr=%d attn_k_addr=%d attn_v_addr=%d ffn_up_addr=%d ffn_gate_addr=%d ffn_down_addr=%d ' ...
             'out_hidden_nonzero=%d out_hidden_dynamic=%d\n'], ...
             result.gamma_addr_ok, result.qkv_q_addr_ok, result.qkv_k_addr_ok, result.qkv_v_addr_ok, ...
             result.attn_q_addr_ok, result.attn_k_addr_ok, result.attn_v_addr_ok, ...
-            result.ffn_up_addr_ok, result.ffn_gate_addr_ok, ...
+            result.ffn_up_addr_ok, result.ffn_gate_addr_ok, result.ffn_down_addr_ok, ...
             result.out_hidden_nonzero, result.out_hidden_dynamic);
         fprintf('  tb_gamma_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_gamma_rsp_data'));
         fprintf('  tb_qkv_q_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_qkv_q_rsp_data'));
@@ -94,6 +97,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         fprintf('  tb_attn_v_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_attn_v_rsp_data'));
         fprintf('  tb_ffn_up_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_ffn_up_rsp_data'));
         fprintf('  tb_ffn_gate_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_ffn_gate_rsp_data'));
+        fprintf('  tb_ffn_down_rsp_data unique: %s\n', summarize_unique_values(yout, 'tb_ffn_down_rsp_data'));
         fprintf('  tb_gamma_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_gamma_rsp_valid'));
         fprintf('  tb_qkv_q_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_qkv_q_rsp_valid'));
         fprintf('  tb_qkv_k_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_qkv_k_rsp_valid'));
@@ -103,6 +107,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
         fprintf('  tb_attn_v_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_attn_v_rsp_valid'));
         fprintf('  tb_ffn_up_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_ffn_up_rsp_valid'));
         fprintf('  tb_ffn_gate_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_ffn_gate_rsp_valid'));
+        fprintf('  tb_ffn_down_rsp_valid unique: %s\n', summarize_unique_values(yout, 'tb_ffn_down_rsp_valid'));
         error('run_stage2_real_first_block_direct_bus_regression:Failed', ...
             'Direct real first-block bus injection checks failed');
     end
@@ -130,7 +135,7 @@ end
 
 function inject_sample_values_into_weight_ref(tbName, sampleValues)
     subPath = [tbName '/weight_ref_u'];
-    for i = 1:min(9, numel(sampleValues))
+    for i = 1:min(10, numel(sampleValues))
         constName = ['sample_value_' num2str(i)];
         constPath = [subPath '/' constName];
         if isempty(find_system(subPath, 'SearchDepth', 1, 'Name', constName))
@@ -177,10 +182,10 @@ function ensure_weight_observers(tbName)
         'OutputSignals', 'qkv_q_data,qkv_k_data,qkv_v_data', ...
         'Position', [1080, 745, 1145, 825]);
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_ffn_sel'], ...
-        'OutputSignals', 'ffn_up_valid,ffn_gate_valid', ...
+        'OutputSignals', 'ffn_up_valid,ffn_gate_valid,ffn_down_valid', ...
         'Position', [1080, 835, 1145, 895]);
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_ffn_data_sel'], ...
-        'OutputSignals', 'ffn_up_data,ffn_gate_data', ...
+        'OutputSignals', 'ffn_up_data,ffn_gate_data,ffn_down_data', ...
         'Position', [1080, 905, 1145, 965]);
 
     add_block('simulink/Sinks/Out1', [tbName '/tb_qkv_q_rsp_valid'], 'Position', [1240, 320, 1270, 334]);
@@ -193,6 +198,8 @@ function ensure_weight_observers(tbName)
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_rsp_valid'], 'Position', [1240, 600, 1270, 614]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_up_rsp_data'], 'Position', [1240, 640, 1270, 654]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_rsp_data'], 'Position', [1240, 680, 1270, 694]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_down_rsp_valid'], 'Position', [1240, 720, 1270, 734]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_down_rsp_data'], 'Position', [1240, 760, 1270, 774]);
 
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_gamma_sel/1', 'autorouting', 'on');
     add_line(tbName, 'weight_ref_u/1', 'tb_w_rsp_qkv_sel/1', 'autorouting', 'on');
@@ -209,8 +216,10 @@ function ensure_weight_observers(tbName)
     add_line(tbName, 'tb_w_rsp_qkv_data_sel/3', 'tb_qkv_v_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_ffn_sel/1', 'tb_ffn_up_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_ffn_sel/2', 'tb_ffn_gate_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_ffn_sel/3', 'tb_ffn_down_rsp_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_ffn_data_sel/1', 'tb_ffn_up_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_rsp_ffn_data_sel/2', 'tb_ffn_gate_rsp_data/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_rsp_ffn_data_sel/3', 'tb_ffn_down_rsp_data/1', 'autorouting', 'on');
 
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_gamma_sel'], ...
         'OutputSignals', 'gamma_addr,gamma_valid', ...
@@ -219,7 +228,7 @@ function ensure_weight_observers(tbName)
         'OutputSignals', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid', ...
         'Position', [1080, 560, 1145, 700]);
     add_block('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_ffn_sel'], ...
-        'OutputSignals', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid', ...
+        'OutputSignals', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid,ffn_down_addr,ffn_down_valid', ...
         'Position', [1080, 710, 1145, 810]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_req_addr'], 'Position', [1240, 40, 1270, 54]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_gamma_req_valid'], 'Position', [1240, 80, 1270, 94]);
@@ -233,6 +242,8 @@ function ensure_weight_observers(tbName)
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_up_req_valid'], 'Position', [1240, 760, 1270, 774]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_addr'], 'Position', [1240, 800, 1270, 814]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_valid'], 'Position', [1240, 840, 1270, 854]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_down_req_addr'], 'Position', [1240, 880, 1270, 894]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_ffn_down_req_valid'], 'Position', [1240, 920, 1270, 934]);
 
     add_line(tbName, reqSrc, 'tb_w_req_gamma_sel/1', 'autorouting', 'on');
     add_line(tbName, reqSrc, 'tb_w_req_qkv_sel/1', 'autorouting', 'on');
@@ -249,6 +260,8 @@ function ensure_weight_observers(tbName)
     add_line(tbName, 'tb_w_req_ffn_sel/2', 'tb_ffn_up_req_valid/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_req_ffn_sel/3', 'tb_ffn_gate_req_addr/1', 'autorouting', 'on');
     add_line(tbName, 'tb_w_req_ffn_sel/4', 'tb_ffn_gate_req_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_req_ffn_sel/5', 'tb_ffn_down_req_addr/1', 'autorouting', 'on');
+    add_line(tbName, 'tb_w_req_ffn_sel/6', 'tb_ffn_down_req_valid/1', 'autorouting', 'on');
 end
 
 function srcEndpoint = get_existing_source_endpoint(blockPath)

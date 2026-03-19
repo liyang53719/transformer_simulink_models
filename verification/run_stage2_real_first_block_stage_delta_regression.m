@@ -13,7 +13,8 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     useDelayedRamReadAddr = getFieldOr(options, 'UseDelayedRamReadAddr', false);
     ffnGateValidExtraDelay = getFieldOr(options, 'FfnGateValidExtraDelay', 0);
     ffnSwigluValidExtraDelay = getFieldOr(options, 'FfnSwigluValidExtraDelay', 0);
@@ -109,7 +110,7 @@ function signalSpecs = build_signal_specs()
         struct('block', 'qkv_proj_u/kv_valid_alias', 'port', 1, 'name', 'flow_qkv_kv_valid', 'setName', false), ...
         struct('block', 'kv_cache_if_u/attn_compose', 'port', 1, 'name', 'flow_kv_cache_attn_compose')};
 
-    for i = 1:9
+    for i = 1:10
         signalSpecs = [signalSpecs, append_weight_ref_lane_specs(i)]; %#ok<AGROW>
     end
 
@@ -122,6 +123,7 @@ function signalSpecs = build_signal_specs()
     signalSpecs = [signalSpecs, append_weight_lane_specs('attention_u', 'v')]; %#ok<AGROW>
     signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'up')]; %#ok<AGROW>
     signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'gate')]; %#ok<AGROW>
+    signalSpecs = [signalSpecs, append_weight_lane_specs('ffn_swiglu_u', 'down')]; %#ok<AGROW>
     signalSpecs = [signalSpecs, append_flow_specs('qkv_proj_u', { ...
         'qk_sum', ...
         'qkv_sum'})]; %#ok<AGROW>
@@ -662,7 +664,7 @@ end
 
 function inject_sample_values_into_weight_ref(tbName, sampleValues)
     subPath = [tbName '/weight_ref_u'];
-    for i = 1:min(9, numel(sampleValues))
+    for i = 1:min(10, numel(sampleValues))
         constName = ['sample_value_' num2str(i)];
         constPath = [subPath '/' constName];
         if isempty(find_system(subPath, 'SearchDepth', 1, 'Name', constName))

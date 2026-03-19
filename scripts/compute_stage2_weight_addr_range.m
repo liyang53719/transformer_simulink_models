@@ -9,7 +9,7 @@ function result = compute_stage2_weight_addr_range(contract)
     numHeads = double(getFieldOr(contract, 'cfg_weight_num_heads', 12));
     pageBase = double(getFieldOr(contract, 'cfg_weight_page_base', 64));
     pageStride = double(getFieldOr(contract, 'cfg_weight_page_stride', 8));
-    laneOffsets = 0:8;
+    laneOffsets = 0:9;
 
     baseAddr = pageBase + tokenPos * numHeads * pageStride;
     laneAddrs = baseAddr + laneOffsets;

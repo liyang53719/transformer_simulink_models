@@ -1,10 +1,8 @@
 function summary = run_stage2_smoke_suite_fast(rootDir)
-%RUN_STAGE2_SMOKE_SUITE_FAST Fast stage2 smoke suite with model-build reuse.
-%   This suite accelerates local iteration by avoiding repeated Simulink rebuilds
-%   across smoke checks. It runs:
-%   1) default KvAddressConfig: hardware interface contract + decode + wrapper TB + top KV IO + KV banking + attention pipeline + FFN pipeline + axi rd functional + axi wr functional
-%      plus real first-block direct-bus and output-delta regressions
-%   2) non-default KvAddressConfig: decode internal smoke for parameter coverage
+%RUN_STAGE2_SMOKE_SUITE_FAST Fast stage2 smoke suite against a manually generated DUT.
+%   This suite never rebuilds qwen2_block_top.slx. Regenerate the canonical
+%   DUT manually before calling the suite, then all checks run with
+%   BuildModel=false against that single model instance.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -14,11 +12,8 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     addpath(fullfile(rootDir, 'verification'));
 
     cfgDefault = struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1);
-    cfgVariant = struct('rd_base', 64, 'wr_base', 128, 'stride_bytes', 4, 'decode_burst_len', 2);
-
     rebuildEachCase = false;
 
-    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
     rModelSelfInit = run_stage2_model_self_init_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
     rHwInterface = run_stage2_hardware_interface_contract_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
@@ -39,9 +34,6 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rRealDirectBus = run_stage2_real_first_block_direct_bus_regression(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rRealOutputDelta = run_stage2_real_first_block_output_delta_regression(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
 
-    implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgVariant));
-    rDecodeVariant = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgVariant));
-
     summary = struct();
     summary.model_self_init = rModelSelfInit;
     summary.hardware_interface = rHwInterface;
@@ -61,14 +53,12 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_axi_wr = rAxiWr;
     summary.default_real_direct_bus = rRealDirectBus;
     summary.default_real_output_delta = rRealOutputDelta;
-    summary.variant_decode = rDecodeVariant;
     summary.pass = rModelSelfInit.pass && rHwInterface.pass && rDecodeDefault.pass && rWeightPath.pass && ...
         rWeightAddrRange.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rTopKvIo.pass && rKvBanking.pass && ...
         rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && rAxiWr.pass && ...
-        rRealDirectBus.pass && rRealOutputDelta.pass && ...
-        rDecodeVariant.pass;
+        rRealDirectBus.pass && rRealOutputDelta.pass;
 
     if summary.pass
         fprintf('Stage2 fast smoke suite PASS\n');

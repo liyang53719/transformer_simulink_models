@@ -13,7 +13,8 @@ function result = run_stage2_attention_pipeline_smoke(rootDir, options)
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));

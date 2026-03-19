@@ -14,7 +14,8 @@ function result = run_stage2_real_first_block_output_delta_regression(rootDir, o
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
@@ -76,7 +77,7 @@ end
 
 function inject_sample_values_into_weight_ref(tbName, sampleValues)
     subPath = [tbName '/weight_ref_u'];
-    for i = 1:min(9, numel(sampleValues))
+    for i = 1:min(10, numel(sampleValues))
         constName = ['sample_value_' num2str(i)];
         constPath = [subPath '/' constName];
         if isempty(find_system(subPath, 'SearchDepth', 1, 'Name', constName))

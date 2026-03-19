@@ -11,7 +11,8 @@ function result = run_stage2_ffn_pipeline_smoke(rootDir, options)
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
@@ -25,7 +26,8 @@ function result = run_stage2_ffn_pipeline_smoke(rootDir, options)
         struct('block', 'gateup_pair_valid', 'port', 1, 'name', 'ffn_gateup_pair_valid'), ...
         struct('block', 'gateup_pair_valid_z', 'port', 1, 'name', 'ffn_gateup_pair_valid_z'), ...
         struct('block', 'swiglu_valid_z', 'port', 1, 'name', 'ffn_swiglu_valid_z'), ...
-        struct('block', 'down_valid_z', 'port', 1, 'name', 'ffn_down_valid_z'), ...
+        struct('block', 'down_pair_valid_z1', 'port', 1, 'name', 'ffn_down_pair_valid_z1'), ...
+        struct('block', 'down_pair_valid_z2', 'port', 1, 'name', 'ffn_down_pair_valid_z2'), ...
         struct('block', 'gate_norm_gate', 'port', 1, 'name', 'ffn_gate_norm_gate'), ...
         struct('block', 'swiglu_stage_gate', 'port', 1, 'name', 'ffn_swiglu_stage_gate'), ...
         struct('block', 'down_stage_gate', 'port', 1, 'name', 'ffn_down_stage_gate')};
@@ -40,15 +42,18 @@ function result = run_stage2_ffn_pipeline_smoke(rootDir, options)
     pairValid = extract_logged_signal(logsout, 'ffn_gateup_pair_valid');
     pairValidZ = extract_logged_signal(logsout, 'ffn_gateup_pair_valid_z');
     swigluValidZ = extract_logged_signal(logsout, 'ffn_swiglu_valid_z');
-    downValidZ = extract_logged_signal(logsout, 'ffn_down_valid_z');
+    downPairValidZ1 = extract_logged_signal(logsout, 'ffn_down_pair_valid_z1');
+    downPairValidZ2 = extract_logged_signal(logsout, 'ffn_down_pair_valid_z2');
     result = struct();
     result.pair_valid_seen = any(pairValid > 0.5);
     result.pair_valid_delay_ok = has_single_cycle_delay(pairValid, pairValidZ);
     result.swiglu_valid_delay_ok = has_single_cycle_delay(pairValidZ, swigluValidZ);
-    result.down_valid_delay_ok = has_single_cycle_delay(swigluValidZ, downValidZ);
-    result.valid_chain_order_ok = respects_chain_order(pairValid, pairValidZ, swigluValidZ, downValidZ);
+    result.down_valid_d1_ok = has_single_cycle_delay(swigluValidZ, downPairValidZ1);
+    result.down_valid_d2_ok = has_single_cycle_delay(downPairValidZ1, downPairValidZ2);
+    result.valid_chain_order_ok = respects_chain_order(pairValid, pairValidZ, swigluValidZ, downPairValidZ1, downPairValidZ2);
     result.pass = result.pair_valid_seen && result.pair_valid_delay_ok && ...
-        result.swiglu_valid_delay_ok && result.down_valid_delay_ok && ...
+        result.swiglu_valid_delay_ok && result.down_valid_d1_ok && ...
+        result.down_valid_d2_ok && ...
         result.valid_chain_order_ok;
 
     if result.pass
@@ -56,9 +61,10 @@ function result = run_stage2_ffn_pipeline_smoke(rootDir, options)
     else
         fprintf('Stage2 FFN pipeline smoke FAIL\n');
         fprintf(['  pair_seen=%d pair_d1=%d swiglu_d1=%d down_d1=%d ' ...
-            'chain_order=%d\n'], ...
+            'down_d2=%d chain_order=%d\n'], ...
             result.pair_valid_seen, result.pair_valid_delay_ok, ...
-            result.swiglu_valid_delay_ok, result.down_valid_delay_ok, ...
+            result.swiglu_valid_delay_ok, result.down_valid_d1_ok, ...
+            result.down_valid_d2_ok, ...
             result.valid_chain_order_ok);
         error('run_stage2_ffn_pipeline_smoke:Failed', ...
             'FFN pipeline stage checks failed');
@@ -120,13 +126,14 @@ function yes = has_single_cycle_delay(src, delayed)
     yes = all(abs(delayed(2:end) - src(1:end-1)) < 1e-9);
 end
 
-function yes = respects_chain_order(pairValid, pairValidZ, swigluValidZ, downValidZ)
+function yes = respects_chain_order(pairValid, pairValidZ, swigluValidZ, downPairValidZ1, downPairValidZ2)
     idx0 = first_active_index(pairValid);
     idx1 = first_active_index(pairValidZ);
     idx2 = first_active_index(swigluValidZ);
-    idx3 = first_active_index(downValidZ);
-    yes = ~isnan(idx0) && ~isnan(idx1) && ~isnan(idx2) && ~isnan(idx3) && ...
-        idx0 <= idx1 && idx1 <= idx2 && idx2 <= idx3;
+    idx3 = first_active_index(downPairValidZ1);
+    idx4 = first_active_index(downPairValidZ2);
+    yes = ~isnan(idx0) && ~isnan(idx1) && ~isnan(idx2) && ~isnan(idx3) && ~isnan(idx4) && ...
+        idx0 <= idx1 && idx1 <= idx2 && idx2 <= idx3 && idx3 <= idx4;
 end
 
 function idx = first_active_index(values)

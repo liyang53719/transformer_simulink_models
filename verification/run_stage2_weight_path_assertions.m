@@ -8,14 +8,10 @@ function result = run_stage2_weight_path_assertions(rootDir, options)
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     [~, mdlName] = fileparts(mdlPath);
-
-    if buildModel
-        addpath(fullfile(rootDir, 'scripts'));
-        implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready'));
-    end
 
     load_system(mdlPath);
     set_param(mdlName, 'SimulationCommand', 'update');

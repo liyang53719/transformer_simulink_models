@@ -32,12 +32,13 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     oName = [layerPrefix 'self_attn_o_proj_qweight'];
     upName = [layerPrefix 'mlp_up_proj_qweight'];
     gateName = [layerPrefix 'mlp_gate_proj_qweight'];
+    downName = [layerPrefix 'mlp_down_proj_qweight'];
 
-    raw = load(matPath, gammaName, qName, kName, vName, oName, upName, gateName);
-    requestAddrMax = pageBase + tokenPos * numHeads * pageStride + 8;
+    raw = load(matPath, gammaName, qName, kName, vName, oName, upName, gateName, downName);
+    requestAddrMax = pageBase + tokenPos * numHeads * pageStride + 9;
     tableLength = max(tableLengthOpt, double(requestAddrMax) + 1);
 
-    tables = cell(1, 9);
+    tables = cell(1, 10);
     tables{1} = build_lane_table(raw.(gammaName), tableLength, 0, true);
     tables{2} = build_lane_table(raw.(qName), tableLength, 0, false);
     tables{3} = build_lane_table(raw.(kName), tableLength, 11, false);
@@ -47,10 +48,11 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     tables{7} = build_lane_table(raw.(oName), tableLength, 73, false);
     tables{8} = build_lane_table(raw.(upName), tableLength, 0, false);
     tables{9} = build_lane_table(raw.(gateName), tableLength, 19, false);
+    tables{10} = build_lane_table(raw.(downName), tableLength, 41, false);
 
-    laneExpectedAddrs = double(requestAddrMax - 8 + (0:8));
-    laneSampleValues = zeros(1, 9);
-    for i = 1:9
+    laneExpectedAddrs = double(requestAddrMax - 9 + (0:9));
+    laneSampleValues = zeros(1, 10);
+    for i = 1:10
         laneSampleValues(i) = double(tables{i}(laneExpectedAddrs(i) + 1));
     end
 
@@ -65,7 +67,7 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     cfg.request_addr_max = double(requestAddrMax);
     cfg.sample_values = laneSampleValues;
     cfg.lane_expected_addrs = laneExpectedAddrs;
-    cfg.lane_names = {'gamma', 'qkv_q', 'qkv_k', 'qkv_v', 'attn_q', 'attn_k', 'attn_v', 'ffn_up', 'ffn_gate'};
+    cfg.lane_names = {'gamma', 'qkv_q', 'qkv_k', 'qkv_v', 'attn_q', 'attn_k', 'attn_v', 'ffn_up', 'ffn_gate', 'ffn_down'};
 end
 
 function out = getFieldOr(s, name, defaultValue)

@@ -4,24 +4,24 @@ function ensure_stage2_weight_bus_objects()
     define_bus('WeightReqRmsBus', {'gamma_addr','gamma_valid'});
     define_bus('WeightReqQkvBus', {'qkv_q_addr','qkv_q_valid','qkv_k_addr','qkv_k_valid','qkv_v_addr','qkv_v_valid'});
     define_bus('WeightReqAttnBus', {'attn_q_addr','attn_q_valid','attn_k_addr','attn_k_valid','attn_v_addr','attn_v_valid'});
-    define_bus('WeightReqFfnBus', {'ffn_up_addr','ffn_up_valid','ffn_gate_addr','ffn_gate_valid'});
+    define_bus('WeightReqFfnBus', {'ffn_up_addr','ffn_up_valid','ffn_gate_addr','ffn_gate_valid','ffn_down_addr','ffn_down_valid'});
 
     define_bus('WeightAddrRmsBus', {'gamma_addr'});
     define_bus('WeightAddrQkvBus', {'q_addr','k_addr','v_addr'});
     define_bus('WeightAddrAttnBus', {'attn_q_addr','attn_k_addr','attn_v_addr'});
-    define_bus('WeightAddrFfnBus', {'up_addr','gate_addr'});
+    define_bus('WeightAddrFfnBus', {'up_addr','gate_addr','down_addr'});
 
     define_bus('WeightReqBus', {
         'gamma_addr','gamma_valid', ...
         'qkv_q_addr','qkv_q_valid','qkv_k_addr','qkv_k_valid','qkv_v_addr','qkv_v_valid', ...
         'attn_q_addr','attn_q_valid','attn_k_addr','attn_k_valid','attn_v_addr','attn_v_valid', ...
-        'ffn_up_addr','ffn_up_valid','ffn_gate_addr','ffn_gate_valid'});
+        'ffn_up_addr','ffn_up_valid','ffn_gate_addr','ffn_gate_valid','ffn_down_addr','ffn_down_valid'});
 
     define_bus_typed('WeightRspBus', {
         'gamma_data','gamma_valid', ...
         'qkv_q_data','qkv_q_valid','qkv_k_data','qkv_k_valid','qkv_v_data','qkv_v_valid', ...
         'attn_q_data','attn_q_valid','attn_k_data','attn_k_valid','attn_v_data','attn_v_valid', ...
-        'ffn_up_data','ffn_up_valid','ffn_gate_data','ffn_gate_valid'});
+        'ffn_up_data','ffn_up_valid','ffn_gate_data','ffn_gate_valid','ffn_down_data','ffn_down_valid'});
 
     define_bus('QkvStreamBus', {'q_stream','k_stream','v_stream','q_valid','kv_valid','group_idx'});
     define_bus('AttentionFlowBus', {'q_stream','k_cache','v_cache','group_idx','score_scale'});

@@ -11,7 +11,8 @@ function result = run_stage2_real_first_block_weight_regression(rootDir, options
         options = struct();
     end
 
-    buildModel = getFieldOr(options, 'BuildModel', true);
+    buildModel = getFieldOr(options, 'BuildModel', false);
+    assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
 
     addpath(fullfile(rootDir, 'scripts'));
@@ -87,7 +88,7 @@ end
 
 function inject_sample_values_into_weight_ref(tbName, sampleValues)
     subPath = [tbName '/weight_ref_u'];
-    for i = 1:min(9, numel(sampleValues))
+    for i = 1:min(10, numel(sampleValues))
         constName = ['sample_value_' num2str(i)];
         constPath = [subPath '/' constName];
         if isempty(find_system(subPath, 'SearchDepth', 1, 'Name', constName))
@@ -128,10 +129,10 @@ function ensure_weight_observers(tbName)
         'OutputSignals', 'qkv_q_data,qkv_k_data,qkv_v_data,attn_q_data,attn_k_data,attn_v_data', ...
         'Position', [1080, 825, 1145, 985]);
     add_block_if_missing('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_ffn_sel'], ...
-        'OutputSignals', 'ffn_up_valid,ffn_gate_valid', ...
+        'OutputSignals', 'ffn_up_valid,ffn_gate_valid,ffn_down_valid', ...
         'Position', [1080, 995, 1145, 1055]);
     add_block_if_missing('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_rsp_ffn_data_sel'], ...
-        'OutputSignals', 'ffn_up_data,ffn_gate_data', ...
+        'OutputSignals', 'ffn_up_data,ffn_gate_data,ffn_down_data', ...
         'Position', [1080, 1065, 1145, 1125]);
 
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_qkv_q_rsp_valid'], 'Position', [1240, 320, 1270, 334]);
@@ -150,6 +151,8 @@ function ensure_weight_observers(tbName)
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_rsp_valid'], 'Position', [1240, 840, 1270, 854]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_up_rsp_data'], 'Position', [1240, 880, 1270, 894]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_rsp_data'], 'Position', [1240, 920, 1270, 934]);
+    add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_down_rsp_valid'], 'Position', [1240, 960, 1270, 974]);
+    add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_down_rsp_data'], 'Position', [1240, 1000, 1270, 1014]);
 
     add_line_if_missing(tbName, 'weight_ref_u/1', 'tb_w_rsp_gamma_sel/1');
     add_line_if_missing(tbName, 'weight_ref_u/1', 'tb_w_rsp_qkv_sel/1');
@@ -172,8 +175,10 @@ function ensure_weight_observers(tbName)
     add_line_if_missing(tbName, 'tb_w_rsp_qkv_data_sel/6', 'tb_attn_v_rsp_data/1');
     add_line_if_missing(tbName, 'tb_w_rsp_ffn_sel/1', 'tb_ffn_up_rsp_valid/1');
     add_line_if_missing(tbName, 'tb_w_rsp_ffn_sel/2', 'tb_ffn_gate_rsp_valid/1');
+    add_line_if_missing(tbName, 'tb_w_rsp_ffn_sel/3', 'tb_ffn_down_rsp_valid/1');
     add_line_if_missing(tbName, 'tb_w_rsp_ffn_data_sel/1', 'tb_ffn_up_rsp_data/1');
     add_line_if_missing(tbName, 'tb_w_rsp_ffn_data_sel/2', 'tb_ffn_gate_rsp_data/1');
+    add_line_if_missing(tbName, 'tb_w_rsp_ffn_data_sel/3', 'tb_ffn_down_rsp_data/1');
 
     add_block_if_missing('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_gamma_sel'], ...
         'OutputSignals', 'gamma_addr,gamma_valid', ...
@@ -182,7 +187,7 @@ function ensure_weight_observers(tbName)
         'OutputSignals', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid,attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid', ...
         'Position', [1080, 560, 1145, 820]);
     add_block_if_missing('simulink/Signal Routing/Bus Selector', [tbName '/tb_w_req_ffn_sel'], ...
-        'OutputSignals', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid', ...
+        'OutputSignals', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid,ffn_down_addr,ffn_down_valid', ...
         'Position', [1080, 830, 1145, 930]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_gamma_req_addr'], 'Position', [1240, 40, 1270, 54]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_gamma_req_valid'], 'Position', [1240, 80, 1270, 94]);
@@ -202,6 +207,8 @@ function ensure_weight_observers(tbName)
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_up_req_valid'], 'Position', [1240, 1480, 1270, 1494]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_addr'], 'Position', [1240, 1520, 1270, 1534]);
     add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_gate_req_valid'], 'Position', [1240, 1560, 1270, 1574]);
+    add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_down_req_addr'], 'Position', [1240, 1600, 1270, 1614]);
+    add_block_if_missing('simulink/Sinks/Out1', [tbName '/tb_ffn_down_req_valid'], 'Position', [1240, 1640, 1270, 1654]);
 
     add_line_if_missing(tbName, reqSrc, 'tb_w_req_gamma_sel/1');
     add_line_if_missing(tbName, reqSrc, 'tb_w_req_qkv_sel/1');
@@ -224,6 +231,8 @@ function ensure_weight_observers(tbName)
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/2', 'tb_ffn_up_req_valid/1');
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/3', 'tb_ffn_gate_req_addr/1');
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/4', 'tb_ffn_gate_req_valid/1');
+    add_line_if_missing(tbName, 'tb_w_req_ffn_sel/5', 'tb_ffn_down_req_addr/1');
+    add_line_if_missing(tbName, 'tb_w_req_ffn_sel/6', 'tb_ffn_down_req_valid/1');
 end
 
 function add_block_if_missing(blockType, blockPath, varargin)
