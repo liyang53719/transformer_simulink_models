@@ -349,8 +349,8 @@ function ensure_stage2_ports(mdlName, useExternalWeightRsp)
     set_root_inport_type(mdlName, 'in_hidden', 'fixdt(1,64,30)');
     set_root_inport_type(mdlName, 'in_residual', 'fixdt(1,64,30)');
     set_root_inport_type(mdlName, 'kv_cache_rd_data', 'single');
-    set_root_inport_type(mdlName, 'cfg_seq_len', 'fixdt(1,17,15)');
-    set_root_inport_type(mdlName, 'cfg_token_pos', 'fixdt(1,17,15)');
+    set_root_inport_type(mdlName, 'cfg_seq_len', 'fixdt(0,17,0)');
+    set_root_inport_type(mdlName, 'cfg_token_pos', 'fixdt(0,17,0)');
     set_root_inport_type(mdlName, 'cfg_eps', 'fixdt(1,256,120)');
     set_root_inport_type(mdlName, 'stop_req', 'boolean');
     set_root_inport_type(mdlName, 'kv_cache_rd_valid', 'boolean');
@@ -548,6 +548,10 @@ function set_root_inport_type(mdlName, name, dt)
         set_param(blk, 'OutDataTypeStr', dt);
     catch
     end
+end
+
+function token = exact_single_literal(value)
+    token = num2str(double(single(value)), '%.17g');
 end
 
 function configure_axi_master_rd(subPath)
@@ -844,9 +848,9 @@ function configure_kv_cache_if(subPath)
     add_block('simulink/Sources/In1', [subPath '/tile_k'], 'Position', [20, 390, 50, 404]);
     add_block('simulink/Sources/In1', [subPath '/tile_out'], 'Position', [20, 420, 50, 434]);
     add_block('simulink/Math Operations/Gain', [subPath '/q_stream_gain'], ...
-        'Gain', '0.6', 'Position', [90, 20, 130, 45]);
+        'Gain', exact_single_literal(0.6), 'Position', [90, 20, 130, 45]);
     add_block('simulink/Math Operations/Gain', [subPath '/k_cache_gain'], ...
-        'Gain', '0.4', 'Position', [90, 65, 130, 90]);
+        'Gain', exact_single_literal(0.4), 'Position', [90, 65, 130, 90]);
     add_block('simulink/Math Operations/Gain', [subPath '/v_cache_gain'], ...
         'Gain', '1.0', 'Position', [90, 110, 130, 135]);
     add_block('simulink/Math Operations/Add', [subPath '/bank_sum'], ...
@@ -1153,7 +1157,9 @@ function configure_axi_weight_rd(subPath)
 
     safe_add_line(subPath, 'rsp_bc/1', 'rsp_bus/1');
 
-    scaleVals = {'1.0','0.6','0.4','1.0','0.6','0.4','1.0','1.4','0.9'};
+    scaleVals = {exact_single_literal(1.0), exact_single_literal(0.6), exact_single_literal(0.4), ...
+        exact_single_literal(1.0), exact_single_literal(0.6), exact_single_literal(0.4), ...
+        exact_single_literal(1.0), exact_single_literal(1.4), exact_single_literal(0.9)};
     for i = 1:9
         baseY = 20 + 30 * (i - 1);
         add_block('simulink/Sources/Constant', [subPath '/arready_' num2str(i)], ...
@@ -1393,11 +1399,11 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
     [qOut, qReqAddr, qReqValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, '0.6');
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, exact_single_literal(0.6));
     [kOut, kReqAddr, kReqValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 105, '0.4');
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 105, exact_single_literal(0.4));
     [vOut, vReqAddr, vReqValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
-        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 195, '1.0');
+        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 195, exact_single_literal(1.0));
 
     safe_add_line(subPath, qOut, 'qk_sum/1');
     safe_add_line(subPath, kOut, 'qk_sum/2');
@@ -1566,11 +1572,11 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'head_group_den/1', 'head_group_norm/2');
 
     [qOut, qReqAddr, qReqValid] = add_streamed_weight_mul(subPath, 'q', 'q_head_stream_gain/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, '0.6');
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, exact_single_literal(0.6));
     [kOut, kReqAddr, kReqValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95, '0.4');
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95, exact_single_literal(0.4));
     [vOut, vReqAddr, vReqValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
-        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 175, '1.0');
+        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 175, exact_single_literal(1.0));
 
     safe_add_line(subPath, qOut, 'head_group_stage_z/1');
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
@@ -1695,9 +1701,9 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
     [upOut, upReqAddr, upReqValid] = add_streamed_weight_mul(subPath, 'up', 'x_in/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, '1.4');
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15, exact_single_literal(1.4));
     [gateOut, gateReqAddr, gateReqValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 145, '0.9');
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 145, exact_single_literal(0.9));
 
     safe_add_line(subPath, 'rsp_sel/2', 'gateup_pair_valid/1');
     safe_add_line(subPath, 'rsp_sel/4', 'gateup_pair_valid/2');

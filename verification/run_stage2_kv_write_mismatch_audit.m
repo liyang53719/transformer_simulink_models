@@ -1,9 +1,8 @@
 function result = run_stage2_kv_write_mismatch_audit(rootDir, options)
-%RUN_STAGE2_KV_WRITE_MISMATCH_AUDIT Diagnose kv_read-bump mismatch semantics.
-%   This audit explains why the hardware KV-write summary responds to
-%   kv_cache_rd_data while the current reference adapter KV-write summary
-%   does not. The expected outcome is a classified non-shared behavior,
-%   not a forced alignment.
+%RUN_STAGE2_KV_WRITE_MISMATCH_AUDIT Diagnose kv_read-bump KV-write semantics.
+%   This audit classifies whether kv_read perturbations create a real
+%   shared mismatch between DUT and reference summaries, or whether both
+%   sides are consistently insensitive after integer control typing fixes.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -74,7 +73,7 @@ function result = run_stage2_kv_write_mismatch_audit(rootDir, options)
     result.classification = classify_mismatch(result);
     result.pass = result.reference_kv_finite && result.dut_kv_finite && ...
         result.reference_kv_write_present && result.dut_kv_write_present && ...
-        result.reference_out_hidden_sensitive && result.dut_kv_write_sensitive && ...
+        result.reference_out_hidden_sensitive && ...
         result.classification ~= "unclassified";
 
     if result.pass
@@ -182,6 +181,10 @@ end
 
 function classification = classify_mismatch(result)
     if result.reference_out_hidden_sensitive && ~result.reference_kv_write_sensitive && ...
+            ~result.dut_kv_write_sensitive && result.reference_kv_length_expands_with_read && ...
+            ~result.reference_kv_last_slice_sensitive
+        classification = "shared_kv_write_insensitive_after_integer_control_typing";
+    elseif result.reference_out_hidden_sensitive && ~result.reference_kv_write_sensitive && ...
             result.dut_kv_write_sensitive && result.reference_kv_length_expands_with_read && ...
             ~result.reference_kv_last_slice_sensitive
         classification = "reference_present_history_expands_but_last_write_slice_is_not_past_sensitive";
