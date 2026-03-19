@@ -45,6 +45,11 @@ function [summary, detail] = qwen2_block_ref_stage2_contract_adapter(contract, c
     summary.out_hidden_nonzero = any(abs(lastColumn) > 0);
     summary.out_hidden_finite = all(isfinite(lastColumn), 'all');
     summary.kv_present = isstruct(outKV) && isfield(outKV, 'keys') && ~isempty(outKV.keys);
+    [kvWriteDataSummary, kvWriteAbsMean] = summarize_kv_write(outKV);
+    summary.kv_write_en = summary.kv_present;
+    summary.kv_write_data = kvWriteDataSummary;
+    summary.kv_write_abs_mean = kvWriteAbsMean;
+    summary.kv_write_finite = isfinite(kvWriteDataSummary) && isfinite(kvWriteAbsMean);
     summary.kv_len = kvLen;
     summary.seq_len = seqLen;
     summary.token_pos = tokenPos;
@@ -55,6 +60,41 @@ function [summary, detail] = qwen2_block_ref_stage2_contract_adapter(contract, c
     detail.broadcast_policy = 'scalar_to_hidden_lane_broadcast';
     detail.output_reduction = 'mean_last_output_column';
     detail.kv_policy = 'scalar_kv_value_broadcast_to_hidden_rows';
+end
+
+function [dataSummary, absMean] = summarize_kv_write(outKV)
+    dataSummary = single(0);
+    absMean = single(0);
+
+    if ~isstruct(outKV)
+        return;
+    end
+
+    valueTensor = single([]);
+    if isfield(outKV, 'values') && ~isempty(outKV.values)
+        valueTensor = single(outKV.values);
+    elseif isfield(outKV, 'keys') && ~isempty(outKV.keys)
+        valueTensor = single(outKV.keys);
+    end
+
+    if isempty(valueTensor)
+        return;
+    end
+
+    lastSlice = extract_last_slice(valueTensor);
+    dataSummary = single(mean(lastSlice, 'all'));
+    absMean = single(mean(abs(lastSlice), 'all'));
+end
+
+function slice = extract_last_slice(valueTensor)
+    dims = size(valueTensor);
+    if numel(dims) >= 3
+        idx = repmat({':'}, 1, numel(dims));
+        idx{3} = dims(3);
+        slice = single(valueTensor(idx{:}));
+    else
+        slice = single(valueTensor);
+    end
 end
 
 function kvLen = derive_kv_len(seqLen, tokenPos, kvValid, modeDecode, ctx)

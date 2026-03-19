@@ -14,6 +14,7 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
         options.RunStage2FastSmoke (1,1) logical = false
         options.RunStage2ReferenceReadinessAudit (1,1) logical = false
         options.RunStage2HardwareContractRegression (1,1) logical = false
+        options.RunStage2KvWriteContractRegression (1,1) logical = false
         options.ReportDir (1,:) char = ''
     end
 
@@ -68,6 +69,11 @@ function run_m1_real_reference_regression(paramsFileOrModule, options)
     if options.RunStage2HardwareContractRegression
         fprintf('Precheck: stage2 hardware contract reference regression\n');
         run_stage2_hardware_contract_reference_regression(rootDir, struct('ParamsSource', paramsFileOrModule));
+    end
+
+    if options.RunStage2KvWriteContractRegression
+        fprintf('Precheck: stage2 KV write contract reference regression\n');
+        run_stage2_kv_write_contract_reference_regression(rootDir, struct('ParamsSource', paramsFileOrModule));
     end
 
     run_m1_minimal_regression(struct( ...

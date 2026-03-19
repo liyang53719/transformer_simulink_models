@@ -30,8 +30,9 @@ function result = run_stage2_reference_readiness_audit(rootDir, options)
         'cfg_weight_num_heads', 'cfg_weight_page_base', 'cfg_weight_page_stride'};
     result.adapter_mapped_fields = { ...
         'in_hidden', 'in_residual', 'kv_cache_rd_data', 'kv_cache_rd_valid', 'out_hidden'};
+    result.adapter_summary_fields = {'kv_cache_wr_data', 'kv_cache_wr_en'};
     result.not_directly_comparable_fields = { ...
-        'w_rd_req_bus', 'w_rd_rsp_bus', 'kv_cache_wr_data', 'kv_cache_wr_en', ...
+        'w_rd_req_bus', 'w_rd_rsp_bus', ...
         'kv_mem_rd_addr', 'kv_mem_rd_len', 'kv_mem_rd_valid', ...
         'kv_mem_wr_addr', 'kv_mem_wr_len', 'kv_mem_wr_valid', ...
         'busy', 'irq', 'error_code', 'cycle_latency'};
@@ -42,6 +43,8 @@ function result = run_stage2_reference_readiness_audit(rootDir, options)
     result.reference_out_hidden_nonzero = adapterSummary.out_hidden_nonzero;
     result.reference_seq_len = adapterSummary.seq_len;
     result.reference_kv_len = adapterSummary.kv_len;
+    result.reference_kv_write_en = adapterSummary.kv_write_en;
+    result.reference_kv_write_finite = adapterSummary.kv_write_finite;
 
     if ~(result.reference_out_hidden_finite && result.reference_out_hidden_nonzero)
         error('run_stage2_reference_readiness_audit:AdapterNotReady', ...
@@ -54,6 +57,7 @@ function result = run_stage2_reference_readiness_audit(rootDir, options)
         result.hidden_size, result.reference_seq_len, result.reference_kv_len);
     fprintf('  direct_fields=%s\n', strjoin(string(result.directly_mapped_fields), ', '));
     fprintf('  adapter_fields=%s\n', strjoin(string(result.adapter_mapped_fields), ', '));
+    fprintf('  adapter_summary_fields=%s\n', strjoin(string(result.adapter_summary_fields), ', '));
     fprintf('  noncomparable_fields=%s\n', strjoin(string(result.not_directly_comparable_fields), ', '));
 end
 
