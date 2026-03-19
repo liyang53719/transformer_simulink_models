@@ -83,6 +83,7 @@ function cases = build_contract_cases()
     tokenBump.kv_cache_rd_data = single(7);
     tokenBump.kv_cache_rd_valid = true;
     tokenBump.cfg_token_pos = 2;
+    tokenBump.cfg_weight_page_stride = 4;
 
     cases = repmat(struct('name', '', 'contract', struct()), [1, 3]);
     cases(1) = struct('name', 'base', 'contract', base);

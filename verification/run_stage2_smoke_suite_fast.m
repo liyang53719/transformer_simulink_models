@@ -23,6 +23,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     assert_model_upgrade_markers(rootDir);
     rHwInterface = run_stage2_hardware_interface_contract_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', rebuildEachCase));
+    rWeightAddrRange = run_stage2_weight_addr_range_audit(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rPrefillAttention = run_stage2_prefill_attention_functional_smoke(rootDir, struct('BuildModel', rebuildEachCase));
@@ -46,6 +47,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.hardware_interface = rHwInterface;
     summary.default_decode = rDecodeDefault;
     summary.default_weight_path = rWeightPath;
+    summary.default_weight_addr_range = rWeightAddrRange;
     summary.default_kv_boundary = rKvBoundary;
     summary.default_prefill_attention = rPrefillAttention;
     summary.default_wrapper_tb = rWrapperTb;
@@ -60,7 +62,8 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_real_direct_bus = rRealDirectBus;
     summary.default_real_output_delta = rRealOutputDelta;
     summary.variant_decode = rDecodeVariant;
-    summary.pass = rModelSelfInit.pass && rHwInterface.pass && rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
+    summary.pass = rModelSelfInit.pass && rHwInterface.pass && rDecodeDefault.pass && rWeightPath.pass && ...
+        rWeightAddrRange.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rTopKvIo.pass && rKvBanking.pass && ...
         rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && rAxiWr.pass && ...
