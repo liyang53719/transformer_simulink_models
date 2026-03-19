@@ -74,6 +74,8 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
 
     if result.pass
         fprintf('Stage2 real first-block direct bus regression PASS\n');
+        fprintf(['  scope=direct WeightRspBus contract only; ' ...
+            'not a top-level DDR/request-driven proof\n']);
     else
         fprintf('Stage2 real first-block direct bus regression FAIL\n');
         fprintf(['  gamma_rsp=%d qkv_q_rsp=%d qkv_k_rsp=%d qkv_v_rsp=%d ' ...

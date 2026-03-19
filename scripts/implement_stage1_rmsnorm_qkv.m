@@ -78,7 +78,10 @@ function configure_model_timing(mdlName)
     set_param(mdlName, 'SolverType', 'Fixed-step');
     set_param(mdlName, 'Solver', 'FixedStepDiscrete');
     set_param(mdlName, 'FixedStep', '0.2');
-    set_param(mdlName, 'InitFcn', stage2_model_init_callback());
+    initCmd = stage2_model_init_callback();
+    set_param(mdlName, 'PreLoadFcn', initCmd);
+    set_param(mdlName, 'PostLoadFcn', initCmd);
+    set_param(mdlName, 'InitFcn', initCmd);
 end
 
 function cmd = stage2_model_init_callback()
@@ -138,6 +141,13 @@ function build_prefill_path(mdlName, stageProfile)
         add_or_reset_bus_creator(mdlName, 'qkv_addr_bc', 3, [1060, 740, 1100, 810], 'WeightAddrQkvBus');
         add_or_reset_bus_creator(mdlName, 'attn_addr_bc', 3, [1060, 820, 1100, 890], 'WeightAddrAttnBus');
         add_or_reset_bus_creator(mdlName, 'ffn_addr_bc', 3, [1060, 900, 1100, 970], 'WeightAddrFfnBus');
+        try
+            set_param([mdlName '/rms_addr_bc'], 'InputSignalNames', 'gamma_addr');
+            set_param([mdlName '/qkv_addr_bc'], 'InputSignalNames', 'q_addr,k_addr,v_addr');
+            set_param([mdlName '/attn_addr_bc'], 'InputSignalNames', 'attn_q_addr,attn_k_addr,attn_v_addr');
+            set_param([mdlName '/ffn_addr_bc'], 'InputSignalNames', 'up_addr,gate_addr,down_addr');
+        catch
+        end
 
         force_add_line(mdlName, 'weight_addr_map_u/1', 'rms_addr_bc/1');
         force_add_line(mdlName, 'weight_addr_map_u/2', 'qkv_addr_bc/1');
@@ -149,6 +159,16 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'weight_addr_map_u/8', 'ffn_addr_bc/1');
         force_add_line(mdlName, 'weight_addr_map_u/9', 'ffn_addr_bc/2');
         force_add_line(mdlName, 'weight_addr_map_u/10', 'ffn_addr_bc/3');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 1, 'gamma_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 2, 'q_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 3, 'k_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 4, 'v_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 5, 'attn_q_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 6, 'attn_k_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 7, 'attn_v_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 8, 'up_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 9, 'gate_addr');
+        set_line_name_by_src_port(mdlName, 'weight_addr_map_u', 10, 'down_addr');
 
         force_add_line(mdlName, 'rms_addr_bc/1', 'rmsnorm_u/4');
         force_add_line(mdlName, 'qkv_addr_bc/1', 'qkv_proj_u/3');
@@ -254,8 +274,12 @@ function build_prefill_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
     end
 
-    safe_add_line(mdlName, 'in_valid/1', 'out_valid/1');
-    safe_add_line(mdlName, 'out_ready/1', 'in_ready/1');
+    if stageProfile == "stage2_memory_ready"
+        configure_stage2_top_protocol(mdlName);
+    else
+        safe_add_line(mdlName, 'in_valid/1', 'out_valid/1');
+        safe_add_line(mdlName, 'out_ready/1', 'in_ready/1');
+    end
 end
 
 function build_decode_path(mdlName, stageProfile)
@@ -280,9 +304,11 @@ function build_decode_path(mdlName, stageProfile)
 end
 
 function build_kv_memory_stubs(mdlName, stageProfile)
-    safe_add_line(mdlName, 'kv_cache_rd_data/1', 'kv_cache_wr_data/1');
-    safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'kv_cache_wr_en/1');
-    safe_add_line(mdlName, 'eos_in/1', 'eos_out/1');
+    if stageProfile ~= "stage2_memory_ready"
+        safe_add_line(mdlName, 'kv_cache_rd_data/1', 'kv_cache_wr_data/1');
+        safe_add_line(mdlName, 'kv_cache_rd_valid/1', 'kv_cache_wr_en/1');
+        safe_add_line(mdlName, 'eos_in/1', 'eos_out/1');
+    end
 
     if stageProfile == "stage2_memory_ready"
         safe_add_line(mdlName, 'cfg_token_pos/1', 'kv_addr_gen_u/1');
@@ -295,7 +321,7 @@ function build_kv_memory_stubs(mdlName, stageProfile)
           safe_add_line(mdlName, 'ctrl_fsm_u/1', 'axi_master_wr_u/3');
         safe_add_line(mdlName, 'kv_addr_gen_u/3', 'axi_master_wr_u/4');
         safe_add_line(mdlName, 'kv_addr_gen_u/4', 'axi_master_wr_u/5');
-        force_add_line(mdlName, 'kv_cache_if_u/2', 'kv_cache_wr_data/1');
+        force_add_line(mdlName, 'axi_master_wr_u/1', 'kv_cache_wr_data/1');
         force_add_line(mdlName, 'kv_cache_if_u/3', 'kv_cache_wr_en/1');
           force_add_line(mdlName, 'axi_master_wr_u/2', 'kv_mem_wr_addr/1');
           force_add_line(mdlName, 'axi_master_wr_u/3', 'kv_mem_wr_len/1');
@@ -311,9 +337,31 @@ function build_kv_memory_stubs(mdlName, stageProfile)
         % Feed DDR model interface counter block (3rd fcn-style subsystem).
           safe_add_line(mdlName, 'axi_master_rd_u/5', 'ddr_model_if_u/1');
           safe_add_line(mdlName, 'axi_master_wr_u/4', 'ddr_model_if_u/2');
+          safe_add_line(mdlName, 'axi_master_wr_u/5', 'ddr_model_if_u/5');
         safe_add_line(mdlName, 'kv_mem_rd_ready/1', 'ddr_model_if_u/3');
         safe_add_line(mdlName, 'kv_mem_wr_ready/1', 'ddr_model_if_u/4');
     end
+end
+
+function configure_stage2_top_protocol(mdlName)
+    readyNot = [mdlName '/stage2_in_ready_not'];
+    eosGate = [mdlName '/stage2_eos_gate'];
+
+    if getSimulinkBlockHandle(readyNot) == -1
+        add_block('simulink/Logic and Bit Operations/Logical Operator', readyNot, ...
+            'Operator', 'NOT', 'Position', [1510, 500, 1540, 530]);
+    end
+    if getSimulinkBlockHandle(eosGate) == -1
+        add_block('simulink/Logic and Bit Operations/Logical Operator', eosGate, ...
+            'Operator', 'AND', 'Position', [1510, 540, 1540, 570]);
+    end
+
+    safe_add_line(mdlName, 'ctrl_fsm_u/2', 'stage2_in_ready_not/1');
+    force_add_line(mdlName, 'stage2_in_ready_not/1', 'in_ready/1');
+    force_add_line(mdlName, 'ctrl_fsm_u/1', 'out_valid/1');
+    safe_add_line(mdlName, 'ctrl_fsm_u/1', 'stage2_eos_gate/1');
+    safe_add_line(mdlName, 'eos_in/1', 'stage2_eos_gate/2');
+    force_add_line(mdlName, 'stage2_eos_gate/1', 'eos_out/1');
 end
 
 function ensure_stage2_ports(mdlName, useExternalWeightRsp)
@@ -795,13 +843,14 @@ function configure_ddr_model_if(subPath)
     add_block('simulink/Sources/In1', [subPath '/wr_valid'], 'Position', [20, 80, 50, 94]);
     add_block('simulink/Sources/In1', [subPath '/rd_ready'], 'Position', [20, 120, 50, 134]);
     add_block('simulink/Sources/In1', [subPath '/wr_ready'], 'Position', [20, 160, 50, 174]);
+    add_block('simulink/Sources/In1', [subPath '/request_next_line'], 'Position', [20, 200, 50, 214]);
 
     add_block('simulink/Math Operations/Add', [subPath '/stall_sum'], ...
         'Position', [120, 70, 160, 130]);
     add_block('simulink/Sources/Constant', [subPath '/drop_const'], ...
         'Value', '0', 'Position', [120, 140, 160, 160]);
     add_block('simulink/Math Operations/Add', [subPath '/accepted_sum'], ...
-        'Position', [120, 170, 160, 230]);
+        'Inputs', '+++', 'Position', [120, 170, 160, 230]);
 
     add_block('simulink/Sinks/Out1', [subPath '/stall_count'], 'Position', [370, 60, 400, 74]);
     add_block('simulink/Sinks/Out1', [subPath '/dropped_burst_count'], 'Position', [370, 100, 400, 114]);
@@ -813,6 +862,7 @@ function configure_ddr_model_if(subPath)
     safe_add_line(subPath, 'drop_const/1', 'dropped_burst_count/1');
     safe_add_line(subPath, 'rd_ready/1', 'accepted_sum/1');
     safe_add_line(subPath, 'wr_ready/1', 'accepted_sum/2');
+    safe_add_line(subPath, 'request_next_line/1', 'accepted_sum/3');
     safe_add_line(subPath, 'accepted_sum/1', 'accepted_beats/1');
 end
 

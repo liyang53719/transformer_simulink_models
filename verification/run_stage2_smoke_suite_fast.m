@@ -3,6 +3,10 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 %   This suite never rebuilds qwen2_block_top.slx. Regenerate the canonical
 %   DUT manually before calling the suite, then all checks run with
 %   BuildModel=false against that single model instance.
+%   The suite validates protocol, plumbing, wrapper observability, and
+%   contract-level behavior only. It does not constitute an independent
+%   numeric proof that top-level DDR-fed real weights match a golden
+%   baseline through the canonical DUT.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -17,6 +21,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     rModelSelfInit = run_stage2_model_self_init_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
     rHwInterface = run_stage2_hardware_interface_contract_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
+    rProtocolSemantics = run_stage2_protocol_semantics_audit(rootDir, struct('BuildModel', rebuildEachCase));
     rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', rebuildEachCase));
     rWeightAddrRange = run_stage2_weight_addr_range_audit(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
@@ -37,6 +42,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary = struct();
     summary.model_self_init = rModelSelfInit;
     summary.hardware_interface = rHwInterface;
+    summary.protocol_semantics = rProtocolSemantics;
     summary.default_decode = rDecodeDefault;
     summary.default_weight_path = rWeightPath;
     summary.default_weight_addr_range = rWeightAddrRange;
@@ -53,7 +59,8 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_axi_wr = rAxiWr;
     summary.default_real_direct_bus = rRealDirectBus;
     summary.default_real_output_delta = rRealOutputDelta;
-    summary.pass = rModelSelfInit.pass && rHwInterface.pass && rDecodeDefault.pass && rWeightPath.pass && ...
+    summary.pass = rModelSelfInit.pass && rHwInterface.pass && rProtocolSemantics.pass && ...
+        rDecodeDefault.pass && rWeightPath.pass && ...
         rWeightAddrRange.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rTopKvIo.pass && rKvBanking.pass && ...
         rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
@@ -66,6 +73,9 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
         fprintf('Stage2 fast smoke suite FAIL\n');
         error('run_stage2_smoke_suite_fast:Failed', 'One or more stage2 smoke checks failed');
     end
+
+    fprintf(['Stage2 fast smoke scope: protocol/plumbing/contract checks only; ' ...
+        'not an independent real-weight numeric validation through top-level DDR.\n']);
 end
 
 function assert_model_upgrade_markers(rootDir)

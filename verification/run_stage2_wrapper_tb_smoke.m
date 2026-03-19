@@ -22,6 +22,7 @@ function result = run_stage2_wrapper_tb_smoke(rootDir, options)
     tbName = char(modelInfo.tbName);
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
+    ensure_wrapper_write_request_observer(tbName);
 
     try
         simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
@@ -34,9 +35,16 @@ function result = run_stage2_wrapper_tb_smoke(rootDir, options)
         kvWrAddr = extract_signal(yout, 'kv_mem_wr_addr');
         kvWrData = extract_signal(yout, 'kv_cache_wr_data');
         kvWrEn = extract_signal(yout, 'kv_cache_wr_en');
+        wrRequestNextLine = extract_signal(yout, 'tb_wr_request_next_line');
         rdRspValid = extract_signal(yout, 'tb_rd_rsp_valid');
         rdRspData = extract_signal(yout, 'tb_rd_rsp_data');
         doneSig = extract_signal(yout, 'done');
+
+        wrValidMask = kvWrValid > 0.5;
+        wrEnMask = kvWrEn > 0.5;
+        wrRequestNextLineMask = wrRequestNextLine > 0.5;
+        firstWrIdx = find(wrValidMask, 1, 'first');
+        pulseIdx = find(wrRequestNextLineMask);
 
         result = struct();
         result.tb_ready = true;
@@ -45,13 +53,26 @@ function result = run_stage2_wrapper_tb_smoke(rootDir, options)
         result.kv_rd_addr_nonzero = any(kvRdAddr > 0);
         result.kv_wr_addr_nonzero = any(kvWrAddr > 0);
         result.kv_wr_en_seen = any(kvWrEn > 0.5);
+        result.wr_request_next_line_seen = any(wrRequestNextLine > 0.5);
+        result.wr_request_next_line_count = numel(pulseIdx);
+        result.wr_request_next_line_on_write = any(wrRequestNextLineMask & wrValidMask & wrEnMask);
+        result.wr_request_next_line_after_first_write = ~isempty(firstWrIdx) && ~isempty(pulseIdx) && pulseIdx(1) >= firstWrIdx;
+        result.wr_valid_clears_after_pulse = false;
+        if ~isempty(pulseIdx)
+            lastPulse = pulseIdx(end);
+            if lastPulse < numel(wrValidMask)
+                result.wr_valid_clears_after_pulse = any(~wrValidMask(lastPulse + 1:end));
+            end
+        end
         result.rd_rsp_valid_seen = any(rdRspValid > 0.5);
         result.rd_rsp_data_nonzero = any(abs(rdRspData) > 0);
         result.done_seen = any(doneSig > 0.5);
         result.kv_wr_data_nonzero = any(abs(kvWrData) > 0);
         result.pass = result.kv_rd_valid_seen && result.kv_wr_valid_seen && ...
             result.kv_wr_addr_nonzero && ...
-            result.kv_wr_en_seen && result.rd_rsp_valid_seen && ...
+            result.kv_wr_en_seen && result.wr_request_next_line_seen && ...
+            result.wr_request_next_line_on_write && result.wr_request_next_line_after_first_write && ...
+            result.rd_rsp_valid_seen && ...
             result.rd_rsp_data_nonzero && result.kv_wr_data_nonzero;
 
         if result.pass
@@ -60,9 +81,11 @@ function result = run_stage2_wrapper_tb_smoke(rootDir, options)
             fprintf('Stage2 wrapper TB smoke FAIL\n');
             fprintf('  kv_rd_valid_seen=%d kv_wr_valid_seen=%d rd_rsp_valid_seen=%d done_seen=%d\n', ...
                 result.kv_rd_valid_seen, result.kv_wr_valid_seen, result.rd_rsp_valid_seen, result.done_seen);
-            fprintf('  kv_rd_addr_nonzero=%d kv_wr_addr_nonzero=%d kv_wr_en_seen=%d kv_wr_data_nonzero=%d rd_rsp_data_nonzero=%d\n', ...
+            fprintf('  kv_rd_addr_nonzero=%d kv_wr_addr_nonzero=%d kv_wr_en_seen=%d request_next_line_seen=%d request_next_line_count=%d on_write=%d after_first_write=%d wr_valid_clears_after_pulse=%d kv_wr_data_nonzero=%d rd_rsp_data_nonzero=%d\n', ...
                 result.kv_rd_addr_nonzero, result.kv_wr_addr_nonzero, result.kv_wr_en_seen, ...
-                result.kv_wr_data_nonzero, result.rd_rsp_data_nonzero);
+                result.wr_request_next_line_seen, result.wr_request_next_line_count, ...
+                result.wr_request_next_line_on_write, result.wr_request_next_line_after_first_write, ...
+                result.wr_valid_clears_after_pulse, result.kv_wr_data_nonzero, result.rd_rsp_data_nonzero);
         end
     catch ME
         if is_wrapper_tb_blocker(ME)
@@ -135,8 +158,10 @@ function connect_dut_outputs(tbName, outports)
 
     add_block('simulink/Sinks/Out1', [tbName '/tb_rd_rsp_data'], 'Position', [980, 120, 1010, 134]);
     add_block('simulink/Sinks/Out1', [tbName '/tb_rd_rsp_valid'], 'Position', [980, 160, 1010, 174]);
+    add_block('simulink/Sinks/Out1', [tbName '/tb_wr_request_next_line'], 'Position', [980, 200, 1010, 214]);
     add_line(tbName, 'ddr_ref_u/3', 'tb_rd_rsp_data/1', 'autorouting', 'on');
     add_line(tbName, 'ddr_ref_u/4', 'tb_rd_rsp_valid/1', 'autorouting', 'on');
+    add_line(tbName, 'ddr_ref_u/5', 'tb_wr_request_next_line/1', 'autorouting', 'on');
 end
 
 function configure_soc_style_ddr_ref(subPath)
@@ -144,7 +169,7 @@ function configure_soc_style_ddr_ref(subPath)
     Simulink.SubSystem.deleteContents(subPath);
 
     inNames = {'rd_addr', 'rd_len', 'rd_valid', 'wr_addr', 'wr_len', 'wr_valid', 'wr_data', 'wr_en'};
-    outNames = {'rd_ready', 'wr_ready', 'rd_data', 'rd_data_valid'};
+    outNames = {'rd_ready', 'wr_ready', 'rd_data', 'rd_data_valid', 'wr_request_next_line'};
     for i = 1:numel(inNames)
         add_block('simulink/Sources/In1', [subPath '/' inNames{i}], 'Position', [20, 30 + 35 * i, 50, 44 + 35 * i]);
     end
@@ -181,6 +206,7 @@ function configure_soc_style_ddr_ref(subPath)
     add_line(subPath, 'latency_seed/1', 'rd_data_pack/2', 'autorouting', 'on');
     add_line(subPath, 'rd_data_pack/1', 'rd_data/1', 'autorouting', 'on');
     add_line(subPath, 'rd_fire_z/1', 'rd_data_valid/1', 'autorouting', 'on');
+    add_line(subPath, 'wr_valid/1', 'wr_request_next_line/1', 'autorouting', 'on');
 end
 
 function ports = get_root_ports(mdlName, blockType)
@@ -337,6 +363,44 @@ function out = getFieldOr(s, name, defaultValue)
     else
         out = defaultValue;
     end
+end
+
+function ensure_wrapper_write_request_observer(tbName)
+    ddrRefPath = [tbName '/ddr_ref_u'];
+    writeMemPath = [ddrRefPath '/Output Write Memory'];
+    writeReqOutPath = [writeMemPath '/request_next_line'];
+    ddrReqOutPath = [ddrRefPath '/wr_request_next_line'];
+    tbReqOutPath = [tbName '/tb_wr_request_next_line'];
+
+    if getSimulinkBlockHandle(writeReqOutPath) == -1
+        add_block('simulink/Sinks/Out1', writeReqOutPath, 'Position', [530, 120, 560, 134]);
+    end
+    safe_add_observer_line(writeMemPath, 'AXI4MasterWrite BusSelector/2', 'request_next_line/1');
+
+    if getSimulinkBlockHandle(ddrReqOutPath) == -1
+        add_block('simulink/Sinks/Out1', ddrReqOutPath, 'Position', [430, 220, 460, 234]);
+    end
+    safe_add_observer_line(ddrRefPath, 'Output Write Memory/2', 'wr_request_next_line/1');
+
+    if getSimulinkBlockHandle(tbReqOutPath) == -1
+        add_block('simulink/Sinks/Out1', tbReqOutPath, 'Position', [980, 200, 1010, 214]);
+    end
+    safe_add_observer_line(tbName, 'ddr_ref_u/5', 'tb_wr_request_next_line/1');
+    set_param(tbName, 'SimulationCommand', 'update');
+end
+
+function safe_add_observer_line(sys, src, dst)
+    dstParts = split(string(dst), '/');
+    dstBlk = [sys '/' char(dstParts(1))];
+    dstPort = str2double(dstParts(2));
+    phDst = get_param(dstBlk, 'PortHandles');
+    if dstPort <= numel(phDst.Inport)
+        ln = get_param(phDst.Inport(dstPort), 'Line');
+        if ln ~= -1
+            return;
+        end
+    end
+    add_line(sys, src, dst, 'autorouting', 'on');
 end
 
 function yes = is_wrapper_tb_blocker(ME)

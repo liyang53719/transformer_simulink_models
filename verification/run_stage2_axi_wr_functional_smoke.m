@@ -1,8 +1,7 @@
 function result = run_stage2_axi_wr_functional_smoke(rootDir, options)
-%RUN_STAGE2_AXI_WR_FUNCTIONAL_SMOKE Functional smoke for axi_master_wr_u logic.
-%   This smoke validates deterministic behavior:
-%   1) wr_valid request-hold stays high until write_done.
-%   2) request_next_line only pulses at write_done (complete && count_done).
+%RUN_STAGE2_AXI_WR_FUNCTIONAL_SMOKE DUT-level write-side smoke via wrapper TB.
+%   This smoke delegates simulation to run_stage2_wrapper_tb_smoke and asserts
+%   write-side timing semantics from real DUT observations only.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -12,156 +11,43 @@ function result = run_stage2_axi_wr_functional_smoke(rootDir, options)
     end
 
     buildModel = getFieldOr(options, 'BuildModel', false);
+    kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
     assert_stage2_manual_model_policy(buildModel, mfilename);
-    addpath(fullfile(rootDir, 'scripts'));
 
-    mdlPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
-    load_system(mdlPath);
-    [~, mdlName] = fileparts(mdlPath);
-    set_param(mdlName, 'SimulationCommand', 'update');
-
-    wrPath = [mdlName '/axi_master_wr_u'];
-    requiredBlocks = {'request_or_hold', 'wvalid_state_z', 'write_active_z', ...
-        'write_count_z', 'write_done_logic', 'next_line_logic'};
-    missingBlocks = {};
-    for i = 1:numel(requiredBlocks)
-        if isempty(find_system(wrPath, 'SearchDepth', 1, 'Name', requiredBlocks{i}))
-            missingBlocks{end+1} = requiredBlocks{i}; %#ok<AGROW>
-        end
-    end
-
-    if ~isempty(missingBlocks)
-        close_system(mdlName, 0);
-        error('run_stage2_axi_wr_functional_smoke:MissingBlocks', ...
-            'axi_master_wr_u missing blocks: %s', strjoin(missingBlocks, ', '));
-    end
-
-    seqA = struct();
-    seqA.wr_dvalid = [1 1 0 0 0];
-    seqA.wr_complete = [0 0 1 1 1];
-    seqA.burst_len = [2 2 2 2 2];
-    [traceA, okA, msgA] = simulate_axi_wr(seqA);
-
-    seqB = struct();
-    seqB.wr_dvalid = [1 1 1 0 0 0];
-    seqB.wr_complete = [0 0 0 0 1 1];
-    seqB.burst_len = [3 3 3 3 3 3];
-    [traceB, okB, msgB] = simulate_axi_wr(seqB);
+    addpath(fullfile(rootDir, 'verification'));
+    wrapperResult = run_stage2_wrapper_tb_smoke(rootDir, struct('BuildModel', buildModel, 'KvAddressConfig', kvCfg));
 
     result = struct();
-    result.scenario_a_ok = okA;
-    result.scenario_b_ok = okB;
-    result.scenario_a_msg = msgA;
-    result.scenario_b_msg = msgB;
-    result.trace_a = traceA;
-    result.trace_b = traceB;
-    result.pass = okA && okB;
-
-    close_system(mdlName, 0);
+    result.tb_ready = getFieldOr(wrapperResult, 'tb_ready', false);
+    result.kv_wr_valid_seen = getFieldOr(wrapperResult, 'kv_wr_valid_seen', false);
+    result.kv_wr_en_seen = getFieldOr(wrapperResult, 'kv_wr_en_seen', false);
+    result.kv_wr_addr_nonzero = getFieldOr(wrapperResult, 'kv_wr_addr_nonzero', false);
+    result.kv_wr_data_nonzero = getFieldOr(wrapperResult, 'kv_wr_data_nonzero', false);
+    result.request_next_line_seen = getFieldOr(wrapperResult, 'wr_request_next_line_seen', false);
+    result.request_next_line_count = getFieldOr(wrapperResult, 'wr_request_next_line_count', 0);
+    result.request_next_line_on_write = getFieldOr(wrapperResult, 'wr_request_next_line_on_write', false);
+    result.request_next_line_after_first_write = getFieldOr(wrapperResult, 'wr_request_next_line_after_first_write', false);
+    result.wr_valid_clears_after_pulse = getFieldOr(wrapperResult, 'wr_valid_clears_after_pulse', false);
+    result.pass = result.tb_ready && result.kv_wr_valid_seen && result.kv_wr_en_seen && ...
+        result.kv_wr_addr_nonzero && result.kv_wr_data_nonzero && ...
+        result.request_next_line_seen && result.request_next_line_on_write && ...
+        result.request_next_line_after_first_write;
 
     if result.pass
         fprintf('Stage2 axi_master_wr functional smoke PASS\n');
     else
         fprintf('Stage2 axi_master_wr functional smoke FAIL\n');
-        if ~okA
-            fprintf('  Scenario A: %s\n', msgA);
-        end
-        if ~okB
-            fprintf('  Scenario B: %s\n', msgB);
+        fprintf('  tb_ready=%d kv_wr_valid_seen=%d kv_wr_en_seen=%d kv_wr_addr_nonzero=%d kv_wr_data_nonzero=%d\n', ...
+            result.tb_ready, result.kv_wr_valid_seen, result.kv_wr_en_seen, result.kv_wr_addr_nonzero, result.kv_wr_data_nonzero);
+        fprintf('  request_next_line_seen=%d request_next_line_count=%d on_write=%d after_first_write=%d wr_valid_clears_after_pulse=%d\n', ...
+            result.request_next_line_seen, result.request_next_line_count, result.request_next_line_on_write, ...
+            result.request_next_line_after_first_write, result.wr_valid_clears_after_pulse);
+        if isfield(wrapperResult, 'reason')
+            result.reason = wrapperResult.reason;
+            fprintf('  reason=%s\n', result.reason);
         end
         error('run_stage2_axi_wr_functional_smoke:Failed', ...
-            'axi_master_wr functional checks failed');
-    end
-end
-
-function [trace, ok, msg] = simulate_axi_wr(seq)
-    n = numel(seq.wr_dvalid);
-    wvalid_state = false;
-    write_active = false;
-    write_count = 0;
-
-    trace = repmat(struct('wr_valid', false, 'request_next_line', false, ...
-        'write_active', false, 'write_count', 0), n, 1);
-
-    for t = 1:n
-        wr_dvalid = logical(seq.wr_dvalid(t));
-        wr_complete = logical(seq.wr_complete(t));
-        burst_len = double(seq.burst_len(t));
-
-        request_or_hold = wr_dvalid || wvalid_state;
-        start_write = request_or_hold && ~write_active;
-        active_or_start = write_active || start_write;
-
-        beat_fire = active_or_start && wr_dvalid;
-        count_inc = write_count + 1;
-        count_done = count_inc >= burst_len;
-        write_done = wr_complete && count_done;
-
-        active_next = start_write || (write_active && ~write_done);
-        count_on_beat = ternary(beat_fire, count_inc, write_count);
-        count_next = ternary(start_write, 0, count_on_beat);
-        wvalid_next = request_or_hold && ~write_done;
-
-        wr_valid = request_or_hold;
-        request_next_line = write_done && write_active;
-
-        trace(t).wr_valid = wr_valid;
-        trace(t).request_next_line = request_next_line;
-        trace(t).write_active = write_active;
-        trace(t).write_count = write_count;
-
-        wvalid_state = wvalid_next;
-        write_active = active_next;
-        write_count = count_next;
-    end
-
-    ok = true;
-    msg = 'ok';
-
-    hsIdx = find(logical(seq.wr_dvalid), 1, 'first');
-    if isempty(hsIdx)
-        ok = false;
-        msg = 'no write request observed';
-        return;
-    end
-
-    doneIdx = find([trace.request_next_line], 1, 'first');
-    if isempty(doneIdx)
-        ok = false;
-        msg = 'no write_done/request_next_line observed';
-        return;
-    end
-
-    if any(~[trace(hsIdx:doneIdx).wr_valid])
-        ok = false;
-        msg = 'wr_valid dropped before write_done';
-        return;
-    end
-
-    if doneIdx < numel(trace) && trace(doneIdx+1).wr_valid
-        ok = false;
-        msg = 'wr_valid did not clear after write_done';
-        return;
-    end
-
-    if sum([trace.request_next_line]) ~= 1
-        ok = false;
-        msg = 'request_next_line should pulse exactly once';
-        return;
-    end
-
-    if any([trace.request_next_line] & ~[trace.write_active])
-        ok = false;
-        msg = 'request_next_line asserted when write_active is low';
-        return;
-    end
-end
-
-function out = ternary(cond, trueVal, falseVal)
-    if cond
-        out = trueVal;
-    else
-        out = falseVal;
+            'axi_master_wr DUT-level functional checks failed');
     end
 end
 
@@ -172,3 +58,4 @@ function out = getFieldOr(s, name, defaultValue)
         out = defaultValue;
     end
 end
+

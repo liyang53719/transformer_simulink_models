@@ -44,6 +44,8 @@ function result = run_stage2_real_first_block_output_delta_regression(rootDir, o
 
     if result.pass
         fprintf('Stage2 real first-block output delta regression PASS\n');
+        fprintf(['  scope=output activity delta only; ' ...
+            'not a golden numeric match through top-level DDR\n']);
         fprintf('  sample_count=%d max_abs_diff=%g mean_abs_diff=%g rel_l2_diff=%g\n', ...
             result.sample_count, result.max_abs_diff, result.mean_abs_diff, result.rel_l2_diff);
     else

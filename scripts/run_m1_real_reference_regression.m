@@ -1,5 +1,8 @@
 function result = run_m1_real_reference_regression(paramsFileOrModule, options)
 %RUN_M1_REAL_REFERENCE_REGRESSION Run M1 regression using real qwen2 block adapter.
+%   The real reference path uses the MATLAB block adapter and parameter
+%   package, not the canonical Simulink DUT. Any fast-smoke precheck that
+%   runs here should be interpreted as DUT protocol/plumbing coverage only.
 %
 % Example:
 %   run_m1_real_reference_regression('path/to/qwen_params.mat')
@@ -11,7 +14,7 @@ function result = run_m1_real_reference_regression(paramsFileOrModule, options)
         paramsFileOrModule = 'module_awq'
         options.LayerIndex (1,1) double = 1
         options.PreferDequantizeNow (1,1) logical = false
-        options.BaselineMode (1,:) char = 'real'
+        options.BaselineMode (1,:) char = 'stored'
         options.EnableMemoryMetrics (1,1) logical = false
         options.RunStage2FastSmoke (1,1) logical = false
         options.RunStage2ReferenceReadinessAudit (1,1) logical = false
@@ -98,6 +101,8 @@ end
 function result = run_single_target_regression(paramsFileOrModule, options, rootDir)
     [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options);
     fprintf('Resolved real reference source: %s\n', sourceInfo);
+    fprintf(['Validation scope: block regression below uses the MATLAB real reference path, ' ...
+        'not the canonical Simulink DUT.\n']);
 
     if ~isfield(params, 'Hyperparameters') || ~isfield(params.Hyperparameters, 'HiddenSize')
         error('run_m1_real_reference_regression:MissingHiddenSize', ...
@@ -126,6 +131,8 @@ function result = run_single_target_regression(paramsFileOrModule, options, root
 
     if options.RunStage2FastSmoke
         fprintf('Precheck: stage2 fast smoke suite\n');
+        fprintf(['Precheck scope: this only validates DUT protocol/plumbing/contract semantics; ' ...
+            'it is not a real-weight numeric comparison.\n']);
         run_stage2_smoke_suite_fast(rootDir);
     end
 

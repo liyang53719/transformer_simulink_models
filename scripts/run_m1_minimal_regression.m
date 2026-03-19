@@ -55,7 +55,12 @@ function result = run_m1_minimal_regression(options)
         fprintf('Saved regression report: %s\n', reportPath);
     end
 
-    fprintf('M1 minimal regression PASS\n');
+    if result.pass
+        fprintf('M1 minimal regression PASS\n');
+    else
+        fprintf('M1 minimal regression FAIL\n');
+        error('run_m1_minimal_regression:Failed', 'M1 minimal regression failed.');
+    end
 end
 
 function gate = evaluate_memory_gate(memoryMetrics, options, enableMemoryMetrics)

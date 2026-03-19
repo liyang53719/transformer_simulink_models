@@ -17,6 +17,12 @@ function summary = run_block_regression(rootDir, options)
     referenceMode = getFieldOr(options, 'ReferenceMode', "placeholder");
     referenceContext = getFieldOr(options, 'ReferenceContext', struct());
     baselineMode = lower(string(getFieldOr(options, 'BaselineMode', "stored")));
+    if baselineMode == "real"
+        error('run_block_regression:InvalidBaselineMode', [ ...
+            'BaselineMode=real is disabled because it compares the reference output ' ...
+            'against itself and is not an independent numeric validation. ' ...
+            'Use BaselineMode=stored or provide an independent baseline.']);
+    end
     [refFn, refInfo] = get_block_reference_fn(referenceMode, referenceContext);
     fprintf('Block regression reference mode: %s (%s)\n', refInfo.mode, refInfo.reason);
     fprintf('Block regression baseline mode: %s\n', baselineMode);
@@ -53,11 +59,7 @@ function summary = run_block_regression(rootDir, options)
         [dutHidden, dutKV] = refFn( ...
             single(s.input.hidden), single(s.input.residual), single(s.input.kv_cache), referenceContext);
 
-        if baselineMode == "real"
-            baselineHidden = dutHidden;
-        else
-            baselineHidden = s.golden.output_hidden;
-        end
+        baselineHidden = s.golden.output_hidden;
 
         [maxAbsErr, meanAbsErr, relL2Err, matchRatio] = computeMetrics(single(baselineHidden), dutHidden);
 
