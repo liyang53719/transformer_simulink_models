@@ -1,85 +1,20 @@
-function run_m1_real_reference_regression(paramsFileOrModule, options)
-%RUN_M1_REAL_REFERENCE_REGRESSION Run M1 regression using real qwen2 block adapter.
-%
-% Example:
-%   run_m1_real_reference_regression('path/to/qwen_params.mat')
-%   run_m1_real_reference_regression('module_awq')
+function [params, sourceInfo] = load_qwen_reference_params(paramsFileOrModule, rootDir, options)
+%LOAD_QWEN_REFERENCE_PARAMS Resolve real Qwen parameter sets for reference-side regressions.
 
     arguments
         paramsFileOrModule (1,:) char
-        options.LayerIndex (1,1) double = 1
+        rootDir (1,:) char = ''
         options.PreferDequantizeNow (1,1) logical = false
-        options.BaselineMode (1,:) char = 'real'
-        options.EnableMemoryMetrics (1,1) logical = false
-        options.RunStage2FastSmoke (1,1) logical = false
-        options.RunStage2ReferenceReadinessAudit (1,1) logical = false
-        options.RunStage2HardwareContractRegression (1,1) logical = false
-        options.ReportDir (1,:) char = ''
     end
 
-    rootDir = fileparts(fileparts(mfilename('fullpath')));
+    if strlength(string(rootDir)) == 0
+        rootDir = fileparts(fileparts(mfilename('fullpath')));
+    end
 
-    addpath(fullfile(rootDir, 'scripts'));
-    addpath(fullfile(rootDir, 'verification'));
     addpath(fullfile(rootDir, 'matlab_ref'));
     ensure_local_transformer_models_on_path(rootDir);
 
-    [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options);
-    fprintf('Resolved real reference source: %s\n', sourceInfo);
-
-    if ~isfield(params, 'Hyperparameters') || ~isfield(params.Hyperparameters, 'HiddenSize')
-        error('run_m1_real_reference_regression:MissingHiddenSize', ...
-            'Resolved parameters do not contain Hyperparameters.HiddenSize.');
-    end
-
-    hp = params.Hyperparameters;
-
-    vecOpt = struct('HiddenSize', double(hp.HiddenSize), 'TokensPrefill', 4, 'DecodeKvLen', 3);
-
-    refCtx = struct();
-    refCtx.Parameters = params;
-    refCtx.LayerIndex = options.LayerIndex;
-
-    regOpt = struct();
-    regOpt.ReferenceMode = "real_auto";
-    regOpt.ReferenceContext = refCtx;
-    regOpt.BaselineMode = string(options.BaselineMode);
-    regOpt.EnableMemoryMetrics = options.EnableMemoryMetrics;
-
-    reportDir = string(options.ReportDir);
-    if strlength(reportDir) == 0
-        reportDir = fullfile(rootDir, 'verification', 'reports');
-    end
-
-    safeToken = regexprep(string(paramsFileOrModule), '[^a-zA-Z0-9_\-]+', '_');
-    modeTag = ternary(options.EnableMemoryMetrics, "mem_on", "mem_off");
-    reportTag = "m1_real_" + safeToken + "_" + lower(string(options.BaselineMode)) + "_" + modeTag;
-
-    if options.RunStage2FastSmoke
-        fprintf('Precheck: stage2 fast smoke suite\n');
-        run_stage2_smoke_suite_fast(rootDir);
-    end
-
-    if options.RunStage2ReferenceReadinessAudit
-        fprintf('Precheck: stage2 reference readiness audit\n');
-        run_stage2_reference_readiness_audit(rootDir, struct('ParamsSource', paramsFileOrModule));
-    end
-
-    if options.RunStage2HardwareContractRegression
-        fprintf('Precheck: stage2 hardware contract reference regression\n');
-        run_stage2_hardware_contract_reference_regression(rootDir, struct('ParamsSource', paramsFileOrModule));
-    end
-
-    run_m1_minimal_regression(struct( ...
-        'VectorOptions', vecOpt, ...
-        'RegressionOptions', regOpt, ...
-        'ReportDir', reportDir, ...
-        'ReportTag', reportTag));
-end
-
-function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule, rootDir, options)
     token = string(paramsFileOrModule);
-
     moduleMap = localModuleMap(rootDir);
     if isKey(moduleMap, lower(token))
         token = string(moduleMap(lower(token)));
@@ -95,16 +30,8 @@ function [params, sourceInfo] = load_qwen_parameters_adapter(paramsFileOrModule,
         return;
     end
 
-    error('run_m1_real_reference_regression:InputNotFound', ...
+    error('load_qwen_reference_params:InputNotFound', ...
         'Input not found as .mat file or directory: %s', char(token));
-end
-
-function out = ternary(cond, whenTrue, whenFalse)
-    if cond
-        out = whenTrue;
-    else
-        out = whenFalse;
-    end
 end
 
 function [params, sourceInfo] = load_from_mat_file(paramsFile)
@@ -128,7 +55,7 @@ function [params, sourceInfo] = load_from_mat_file(paramsFile)
         return;
     end
 
-    error('run_m1_real_reference_regression:UnsupportedParams', ...
+    error('load_qwen_reference_params:UnsupportedParams', ...
         ['Cannot parse parameters file. Provide hierarchical struct or add +qwen2/+qwen2_quant ' ...
          'to MATLAB path.']);
 end
@@ -152,14 +79,14 @@ function [params, sourceInfo] = load_from_model_dir(modelDir, rootDir, options)
         end
     end
 
-    error('run_m1_real_reference_regression:UnsupportedModelDir', ...
+    error('load_qwen_reference_params:UnsupportedModelDir', ...
         ['Unsupported model dir or missing loader for: %s. ' ...
          'Expected AWQ/GPTQ folder or GGUF folder with *.gguf files.'], modelDir);
 end
 
 function [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir)
     if ~symbol_exists('qwen2_quant.load_hf_quant_matlab')
-        error('run_m1_real_reference_regression:MissingLoader', ...
+        error('load_qwen_reference_params:MissingLoader', ...
             'qwen2_quant.load_hf_quant_matlab is required for AWQ/GPTQ model dirs.');
     end
 
@@ -177,7 +104,7 @@ function [params, sourceInfo] = load_from_hf_quant_dir(modelDir, rootDir)
             qwen2_quant.prepare_hf_quant_matlab(string(modelDir), string(matOut), ...
                 'LocalFilesOnly', true, 'TrustRemoteCode', true, 'HFEndpoint', "https://hf-mirror.com");
         else
-            error('run_m1_real_reference_regression:MissingExporter', ...
+            error('load_qwen_reference_params:MissingExporter', ...
                 'Missing qwen2_quant.prepare_hf_quant_matlab and no cached mat found: %s', matOut);
         end
     end
@@ -190,14 +117,13 @@ function ggufPath = pick_first_gguf(modelDir)
     ggufPath = "";
     listing = dir(fullfile(modelDir, '*.gguf'));
     if ~isempty(listing)
-        ggufPath = string(fullfile(modelDir, listing(1).name));
+        ggufPath = string(fullfile(modelDir, listing(1).folder, listing(1).name));
     end
 end
 
 function m = localModuleMap(rootDir)
     moduleRoot = fullfile(rootDir, 'matlab_ref', 'module');
     m = containers.Map('KeyType', 'char', 'ValueType', 'char');
-
     m('module_awq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-AWQ');
     m('module_gptq') = fullfile(moduleRoot, 'Qwen2.5-1.5B-Instruct-GPTQ-Int4');
     m('module_gguf') = fullfile(moduleRoot, 'qwen_gguf');
@@ -255,7 +181,6 @@ function repoRoot = detect_dependency_repo_root(modelDir)
     try
         canonical = string(char(java.io.File(modelDir).getCanonicalPath()));
     catch
-        % Keep input path if canonical path is unavailable.
     end
 
     current = canonical;
