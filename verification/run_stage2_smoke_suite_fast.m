@@ -2,7 +2,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 %RUN_STAGE2_SMOKE_SUITE_FAST Fast stage2 smoke suite with model-build reuse.
 %   This suite accelerates local iteration by avoiding repeated Simulink rebuilds
 %   across smoke checks. It runs:
-%   1) default KvAddressConfig: decode + wrapper TB + top KV IO + KV banking + attention pipeline + FFN pipeline + axi rd functional + axi wr functional
+%   1) default KvAddressConfig: hardware interface contract + decode + wrapper TB + top KV IO + KV banking + attention pipeline + FFN pipeline + axi rd functional + axi wr functional
 %      plus real first-block direct-bus and output-delta regressions
 %   2) non-default KvAddressConfig: decode internal smoke for parameter coverage
 
@@ -21,6 +21,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     implement_stage1_rmsnorm_qkv(rootDir, struct('StageProfile', 'stage2_memory_ready', 'KvAddressConfig', cfgDefault));
     rModelSelfInit = run_stage2_model_self_init_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     assert_model_upgrade_markers(rootDir);
+    rHwInterface = run_stage2_hardware_interface_contract_smoke(rootDir, struct('BuildModel', false, 'KvAddressConfig', cfgDefault));
     rWeightPath = run_stage2_weight_path_assertions(rootDir, struct('BuildModel', rebuildEachCase));
     rDecodeDefault = run_stage2_decode_internal_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
     rKvBoundary = run_stage2_kv_cache_boundary_smoke(rootDir, struct('BuildModel', rebuildEachCase, 'KvAddressConfig', cfgDefault));
@@ -42,6 +43,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
 
     summary = struct();
     summary.model_self_init = rModelSelfInit;
+    summary.hardware_interface = rHwInterface;
     summary.default_decode = rDecodeDefault;
     summary.default_weight_path = rWeightPath;
     summary.default_kv_boundary = rKvBoundary;
@@ -58,7 +60,7 @@ function summary = run_stage2_smoke_suite_fast(rootDir)
     summary.default_real_direct_bus = rRealDirectBus;
     summary.default_real_output_delta = rRealOutputDelta;
     summary.variant_decode = rDecodeVariant;
-    summary.pass = rModelSelfInit.pass && rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
+    summary.pass = rModelSelfInit.pass && rHwInterface.pass && rDecodeDefault.pass && rWeightPath.pass && rKvBoundary.pass && ...
         rPrefillAttention.pass && rWrapperTb.pass && rTopKvIo.pass && rKvBanking.pass && ...
         rAttentionPipe.pass && rFfnPipe.pass && rQkvPipe.pass && ...
         rAttentionDdr.pass && rAxiRd.pass && rAxiWr.pass && ...
