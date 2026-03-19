@@ -1852,19 +1852,13 @@ function configure_residual(subPath)
     add_block('simulink/Sources/In1', [subPath '/x_skip'], 'Position', [30, 110, 60, 124]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/main_delay'], ...
         'InitialCondition', '0', 'Position', [110, 55, 150, 75]);
-    add_block('simulink/Math Operations/Gain', [subPath '/main_scale'], ...
-        'Gain', '0.8', 'Position', [180, 50, 240, 75]);
-    add_block('simulink/Math Operations/Gain', [subPath '/skip_scale'], ...
-        'Gain', '1.0', 'Position', [180, 105, 240, 130]);
     add_block('simulink/Math Operations/Sum', [subPath '/res_sum'], ...
-        'Inputs', '++', 'Position', [280, 70, 310, 110]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [360, 85, 390, 99]);
+        'Inputs', '++', 'Position', [210, 70, 240, 110]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [290, 85, 320, 99]);
 
     safe_add_line(subPath, 'x_main/1', 'main_delay/1');
-    safe_add_line(subPath, 'main_delay/1', 'main_scale/1');
-    safe_add_line(subPath, 'x_skip/1', 'skip_scale/1');
-    safe_add_line(subPath, 'main_scale/1', 'res_sum/1');
-    safe_add_line(subPath, 'skip_scale/1', 'res_sum/2');
+    safe_add_line(subPath, 'main_delay/1', 'res_sum/1');
+    safe_add_line(subPath, 'x_skip/1', 'res_sum/2');
     safe_add_line(subPath, 'res_sum/1', 'y_out/1');
 end
 
