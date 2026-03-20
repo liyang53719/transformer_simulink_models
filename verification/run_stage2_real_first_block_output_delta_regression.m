@@ -70,6 +70,7 @@ function outHidden = simulate_wrapper_out_hidden(rootDir, kvCfg, buildModel, wei
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
+    patch_attention_score_norm_guard(mdlName);
     if isstruct(weightRspCfg) && isfield(weightRspCfg, 'sample_tables')
         retarget_weight_ref_to_sample_tables(tbName, weightRspCfg);
     end

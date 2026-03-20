@@ -23,6 +23,7 @@ function result = run_stage2_qkv_pipeline_smoke(rootDir, options)
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
+    patch_attention_score_norm_guard(mdlName);
     signalSpecs = {
         struct('block', 'kv_pair_valid', 'port', 1, 'name', 'qkv_kv_pair_valid'), ...
         struct('block', 'kv_pair_valid_z', 'port', 1, 'name', 'qkv_kv_pair_valid_z'), ...
