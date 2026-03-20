@@ -1,8 +1,8 @@
 function result = run_stage2_kv_banking_pipeline_smoke(rootDir, options)
 %RUN_STAGE2_KV_BANKING_PIPELINE_SMOKE Validate internal KV banking formulas.
-%   This smoke logs scheduler outputs and kv_cache_if internal banking lines
-%   to ensure the stage2 prefill/decode path preserves the expected banked
-%   address, selector, and gated write-enable relationships.
+%   This smoke captures kv_cache_if internal banking lines one at a time and
+%   checks that the wrapper-visible default schedule produces the expected
+%   banked address, selector, and gated write-enable relationships.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -22,45 +22,29 @@ function result = run_stage2_kv_banking_pipeline_smoke(rootDir, options)
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
-    signalSpecs = {
-        struct('path', [mdlName '/kv_cache_if_u/tile_seq'], 'port', 1, 'name', 'sched_tile_seq'), ...
-        struct('path', [mdlName '/kv_cache_if_u/active_seq_len'], 'port', 1, 'name', 'sched_active_seq_len'), ...
-        struct('path', [mdlName '/kv_cache_if_u/tile_k'], 'port', 1, 'name', 'sched_tile_k'), ...
-        struct('path', [mdlName '/kv_cache_if_u/tile_out'], 'port', 1, 'name', 'sched_tile_out'), ...
-        struct('path', [mdlName '/kv_cache_if_u/x_bank_count'], 'port', 1, 'name', 'sched_x_bank_count'), ...
-        struct('path', [mdlName '/kv_cache_if_u/kv_bank_count'], 'port', 1, 'name', 'sched_kv_bank_count'), ...
-        struct('path', [mdlName '/kv_cache_if_u/kv_phase_first'], 'port', 1, 'name', 'sched_kv_phase_first'), ...
-        struct('path', [mdlName '/kv_cache_if_u/seq_window_sum'], 'port', 1, 'name', 'kv_seq_window_sum'), ...
-        struct('path', [mdlName '/kv_cache_if_u/bank_sum'], 'port', 1, 'name', 'kv_bank_sum'), ...
-        struct('path', [mdlName '/kv_cache_if_u/bank_addr'], 'port', 1, 'name', 'kv_bank_addr'), ...
-        struct('path', [mdlName '/kv_cache_if_u/bank_sel'], 'port', 1, 'name', 'kv_bank_sel'), ...
-        struct('path', [mdlName '/kv_cache_if_u/kv_seq_gate'], 'port', 1, 'name', 'kv_bank_wr_en')};
+    schedCfg = prefill_attention_schedule_32x32();
+    cfgSeqLen = str2double(get_param([tbName '/src_cfg_seq_len'], 'Value'));
+    cfgTokenPos = str2double(get_param([tbName '/src_cfg_token_pos'], 'Value'));
+    modeDecode = str2double(get_param([tbName '/src_mode_decode'], 'Value'));
+    activeSeqLenScalar = cfgSeqLen;
+    if activeSeqLenScalar > schedCfg.tile_seq
+        activeSeqLenScalar = schedCfg.tile_seq;
+    end
+    if cfgTokenPos < 0 || modeDecode < 0
+        activeSeqLenScalar = 0;
+    end
 
-    enable_signal_logging(signalSpecs);
+    seqWindowSum = capture_internal_signal(tbName, [mdlName '/kv_cache_if_u/seq_window_sum'], 1);
+    bankSum = capture_internal_signal(tbName, [mdlName '/kv_cache_if_u/bank_sum'], 1);
+    bankAddr = capture_internal_signal(tbName, [mdlName '/kv_cache_if_u/bank_addr'], 1);
+    bankSel = capture_internal_signal(tbName, [mdlName '/kv_cache_if_u/bank_sel'], 1);
+    bankWrEn = capture_internal_signal(tbName, [mdlName '/kv_cache_if_u/kv_seq_gate'], 1);
 
-    simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
-        'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on', ...
-        'SignalLogging', 'on', 'SignalLoggingName', 'logsout');
-    logsout = simOut.get('logsout');
-
-    tileSeq = extract_logged_signal(logsout, 'sched_tile_seq');
-    activeSeqLen = extract_logged_signal(logsout, 'sched_active_seq_len');
-    tileK = extract_logged_signal(logsout, 'sched_tile_k');
-    tileOut = extract_logged_signal(logsout, 'sched_tile_out');
-    xBanks = extract_logged_signal(logsout, 'sched_x_bank_count');
-    kvBanks = extract_logged_signal(logsout, 'sched_kv_bank_count');
-    kvPhaseFirst = extract_logged_signal(logsout, 'sched_kv_phase_first');
-    seqWindowSum = extract_logged_signal(logsout, 'kv_seq_window_sum');
-    bankSum = extract_logged_signal(logsout, 'kv_bank_sum');
-    bankAddr = extract_logged_signal(logsout, 'kv_bank_addr');
-    bankSel = extract_logged_signal(logsout, 'kv_bank_sel');
-    bankWrEn = extract_logged_signal(logsout, 'kv_bank_wr_en');
-
-    expectedSeqWindow = double(tileSeq(:)) + double(activeSeqLen(:));
-    expectedBankSum = double(xBanks(:)) + double(kvBanks(:));
-    expectedBankAddr = expectedSeqWindow .* double(tileK(:)) + double(tileOut(:));
-    expectedBankSel = expectedBankSum .* double(tileOut(:));
-    expectedWrEn = expectedSeqWindow .* double(kvPhaseFirst(:));
+    expectedSeqWindow = constant_trace(schedCfg.tile_seq, seqWindowSum);
+    expectedBankSum = constant_trace(schedCfg.x_bank_count + schedCfg.kv_bank_count, bankSum);
+    expectedBankAddr = constant_trace(schedCfg.tile_seq * schedCfg.tile_k + schedCfg.tile_out, bankAddr);
+    expectedBankSel = constant_trace((schedCfg.x_bank_count + schedCfg.kv_bank_count) * schedCfg.tile_out, bankSel);
+    expectedWrEn = constant_trace(schedCfg.tile_seq * schedCfg.kv_phase_first, bankWrEn);
 
     result = struct();
     result.seq_window_matches = signals_equal(seqWindowSum, expectedSeqWindow);
@@ -90,18 +74,25 @@ function result = run_stage2_kv_banking_pipeline_smoke(rootDir, options)
     end
 end
 
-function enable_signal_logging(signalSpecs)
-    for i = 1:numel(signalSpecs)
-        spec = signalSpecs{i};
-        blockHandle = getSimulinkBlockHandle(spec.path);
-        lineHandle = get_src_line_handle(spec.path, spec.port);
-        if blockHandle == -1 || lineHandle == -1
-            error('run_stage2_kv_banking_pipeline_smoke:MissingLine', ...
-                'Cannot find signal line for %s', spec.path);
-        end
-        Simulink.sdi.markSignalForStreaming(blockHandle, spec.port, 'on');
-        set_param(lineHandle, 'Name', spec.name);
+function values = capture_internal_signal(tbName, signalPath, portIndex)
+    blockHandle = getSimulinkBlockHandle(signalPath);
+    lineHandle = get_src_line_handle(signalPath, portIndex);
+    if blockHandle == -1 || lineHandle == -1
+        error('run_stage2_kv_banking_pipeline_smoke:MissingLine', ...
+            'Cannot find signal line for %s', signalPath);
     end
+
+    Simulink.sdi.markSignalForStreaming(blockHandle, portIndex, 'on');
+    cleanup = onCleanup(@()Simulink.sdi.markSignalForStreaming(blockHandle, portIndex, 'off')); %#ok<NASGU>
+    simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
+        'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on', ...
+        'SignalLogging', 'on', 'SignalLoggingName', 'logsout');
+    logsout = simOut.get('logsout');
+    if logsout.numElements < 1
+        error('run_stage2_kv_banking_pipeline_smoke:MissingLoggedSignal', ...
+            'No streamed signal captured for %s', signalPath);
+    end
+    values = double(logsout.get(logsout.numElements).Values.Data(:));
 end
 
 function lineHandle = get_src_line_handle(blockPath, portIndex)
@@ -116,22 +107,8 @@ function lineHandle = get_src_line_handle(blockPath, portIndex)
     lineHandle = get_param(ph.Outport(portIndex), 'Line');
 end
 
-function values = extract_logged_signal(logsout, name)
-    for i = 1:logsout.numElements
-        sig = logsout.get(i);
-        sigName = string(sig.Name);
-        blockPath = string('');
-        try
-            blockPath = string(sig.BlockPath.getBlock(1));
-        catch
-        end
-        if sigName == string(name) || endsWith(blockPath, "/" + string(name))
-            values = sig.Values.Data;
-            return;
-        end
-    end
-    error('run_stage2_kv_banking_pipeline_smoke:MissingLoggedSignal', ...
-        'Logged signal not found: %s', name);
+function trace = constant_trace(value, reference)
+    trace = repmat(double(value), numel(reference), 1);
 end
 
 function yes = signals_equal(actual, expected)

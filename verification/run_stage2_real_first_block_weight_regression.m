@@ -1,8 +1,8 @@
 function result = run_stage2_real_first_block_weight_regression(rootDir, options)
 %RUN_STAGE2_REAL_FIRST_BLOCK_WEIGHT_REGRESSION Replay real first-block parameter samples through weight_ref_u.
-%   This regression feeds weight_ref_u with sample tables extracted from the
-%   cached real Qwen2 first-layer parameters and checks exact lane-by-lane
-%   address -> response data mapping inside the wrapper TB.
+%   This regression feeds weight_ref_u with request-driven sample tables
+%   extracted from the cached real Qwen2 first-layer parameters and checks
+%   exact lane-by-lane address -> response data mapping inside the wrapper TB.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -33,8 +33,11 @@ function result = run_stage2_real_first_block_weight_regression(rootDir, options
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
+    retarget_weight_ref_to_sample_tables(tbName, weightRspCfg);
     ensure_weight_observers(tbName);
-    inject_sample_values_into_weight_ref(tbName, weightRspCfg.sample_values);
+    ensure_weight_lane_workspace_logs(tbName);
+    clear_weight_lane_workspace_logs();
+    set_param(tbName, 'SimulationCommand', 'update');
 
     simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
         'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on');
@@ -44,24 +47,41 @@ function result = run_stage2_real_first_block_weight_regression(rootDir, options
     expectedAddrs = double(weightRspCfg.lane_expected_addrs);
     expectedValues = double(weightRspCfg.sample_values);
     result = struct();
-    result.lane_results = repmat(struct('lane', '', 'valid_seen', false, 'addr_seen', false, 'data_match', false, 'match_count', 0), [1, numel(laneNames)]);
+    result.lane_results = repmat(struct( ...
+        'lane', '', 'valid_seen', false, 'addr_seen', false, 'data_match', false, 'match_count', 0, ...
+        'observed_first_valid_data', NaN, 'observed_peak_data', NaN), [1, numel(laneNames)]);
     result.out_hidden_nonzero = any(abs(extract_signal(yout, 'out_hidden')) > 0);
 
     allPass = true;
     for i = 1:numel(laneNames)
         prefix = laneNames{i};
-        rspValid = double(extract_signal(yout, ['tb_' prefix '_rsp_valid']));
-        rspData = double(extract_signal(yout, ['tb_' prefix '_rsp_data']));
+        rspValid = double(get_sim_output_data(simOut, ['lane_rsp_valid_' num2str(i)], extract_signal(yout, ['tb_' prefix '_rsp_valid'])));
+        rspData = double(get_sim_output_data(simOut, ['lane_rsp_data_' num2str(i)], extract_signal(yout, ['tb_' prefix '_rsp_data'])));
         reqValid = double(extract_signal(yout, ['tb_' prefix '_req_valid']));
         reqAddr = double(extract_signal(yout, ['tb_' prefix '_req_addr']));
+        rspData = rspData(:);
+        rspValid = rspValid(:);
+        reqValid = reqValid(:);
+        reqAddr = reqAddr(:);
+        commonRspLen = min(numel(rspData), numel(rspValid));
+        rspData = rspData(1:commonRspLen);
+        rspValid = rspValid(1:commonRspLen);
+        commonReqLen = min(numel(reqAddr), numel(reqValid));
+        reqAddr = reqAddr(1:commonReqLen);
+        reqValid = reqValid(1:commonReqLen);
         dataMatchMask = (rspValid > 0.5) & (abs(rspData - expectedValues(i)) < 1e-9);
         addrMask = (reqValid > 0.5) & (round(reqAddr) == expectedAddrs(i));
         lanePass = any(dataMatchMask) && any(addrMask);
+        firstValidIdx = find(rspValid > 0.5, 1, 'first');
         result.lane_results(i).lane = laneNames{i};
         result.lane_results(i).valid_seen = any(rspValid > 0.5);
         result.lane_results(i).addr_seen = any(addrMask);
         result.lane_results(i).data_match = any(dataMatchMask);
         result.lane_results(i).match_count = sum(dataMatchMask);
+        if ~isempty(firstValidIdx)
+            result.lane_results(i).observed_first_valid_data = rspData(firstValidIdx);
+        end
+        result.lane_results(i).observed_peak_data = max(rspData(:));
         allPass = allPass && lanePass;
     end
 
@@ -72,44 +92,20 @@ function result = run_stage2_real_first_block_weight_regression(rootDir, options
     else
         fprintf('Stage2 real first-block weight regression FAIL\n');
         for i = 1:numel(result.lane_results)
-            fprintf('  lane=%s valid_seen=%d addr_seen=%d data_match=%d match_count=%d expected_addr=%g expected_data=%g\n', ...
+            fprintf(['  lane=%s valid_seen=%d addr_seen=%d data_match=%d match_count=%d ' ...
+                'expected_addr=%g expected_data=%g observed_first_valid=%g observed_peak=%g\n'], ...
                 result.lane_results(i).lane, ...
                 result.lane_results(i).valid_seen, ...
                 result.lane_results(i).addr_seen, ...
                 result.lane_results(i).data_match, ...
                 result.lane_results(i).match_count, ...
-                expectedAddrs(i), expectedValues(i));
+                expectedAddrs(i), expectedValues(i), ...
+                result.lane_results(i).observed_first_valid_data, ...
+                result.lane_results(i).observed_peak_data);
         end
         fprintf('  out_hidden_nonzero=%d\n', result.out_hidden_nonzero);
         error('run_stage2_real_first_block_weight_regression:Failed', ...
             'Real first-block parameter replay checks failed');
-    end
-end
-
-function inject_sample_values_into_weight_ref(tbName, sampleValues)
-    subPath = [tbName '/weight_ref_u'];
-    for i = 1:min(10, numel(sampleValues))
-        constName = ['sample_value_' num2str(i)];
-        constPath = [subPath '/' constName];
-        if isempty(find_system(subPath, 'SearchDepth', 1, 'Name', constName))
-            add_block('simulink/Sources/Constant', constPath, ...
-                'Position', [455, 25 + 30 * (i - 1) + 6, 520, 25 + 30 * (i - 1) + 26]);
-        end
-        set_param(constPath, 'Value', num2str(double(sampleValues(i))));
-
-        try
-            delete_line(subPath, ['data_page_tag_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1']);
-        catch
-        end
-        try
-            delete_line(subPath, ['tag_lane_sum_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1']);
-        catch
-        end
-        try
-            delete_line(subPath, ['sample_value_' num2str(i) '/1'], ['data_u8_' num2str(i) '/1']);
-        catch
-        end
-        add_line(subPath, [constName '/1'], ['data_u8_' num2str(i) '/1'], 'autorouting', 'on');
     end
 end
 
@@ -233,6 +229,73 @@ function ensure_weight_observers(tbName)
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/4', 'tb_ffn_gate_req_valid/1');
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/5', 'tb_ffn_down_req_addr/1');
     add_line_if_missing(tbName, 'tb_w_req_ffn_sel/6', 'tb_ffn_down_req_valid/1');
+end
+
+function ensure_weight_lane_workspace_logs(tbName)
+    subPath = [tbName '/weight_ref_u'];
+    for laneIndex = 1:10
+        dataLogPath = [subPath '/lane_rsp_data_log_' num2str(laneIndex)];
+        validLogPath = [subPath '/lane_rsp_valid_log_' num2str(laneIndex)];
+        if getSimulinkBlockHandle(dataLogPath) == -1
+            add_block('simulink/Sinks/To Workspace', dataLogPath, ...
+                'VariableName', ['lane_rsp_data_' num2str(laneIndex)], ...
+                'SaveFormat', 'Structure With Time', ...
+                'Position', [700, 10 + 25 * laneIndex, 790, 28 + 25 * laneIndex]);
+        end
+        if getSimulinkBlockHandle(validLogPath) == -1
+            add_block('simulink/Sinks/To Workspace', validLogPath, ...
+                'VariableName', ['lane_rsp_valid_' num2str(laneIndex)], ...
+                'SaveFormat', 'Structure With Time', ...
+                'Position', [820, 10 + 25 * laneIndex, 910, 28 + 25 * laneIndex]);
+        end
+        add_line_if_missing(subPath, ['data_u8_' num2str(laneIndex) '/1'], ['lane_rsp_data_log_' num2str(laneIndex) '/1']);
+        add_line_if_missing(subPath, ['val_d2_' num2str(laneIndex) '/1'], ['lane_rsp_valid_log_' num2str(laneIndex) '/1']);
+    end
+end
+
+function clear_weight_lane_workspace_logs()
+    for laneIndex = 1:10
+        clear_base_var(['lane_rsp_data_' num2str(laneIndex)]);
+        clear_base_var(['lane_rsp_valid_' num2str(laneIndex)]);
+    end
+end
+
+function values = get_sim_output_data(simOut, variableName, fallback)
+    values = fallback;
+    if evalin('base', sprintf('exist(''%s'', ''var'')', variableName))
+        logged = evalin('base', variableName);
+        extracted = extract_workspace_values(logged);
+        if ~isempty(extracted)
+            values = extracted;
+            return;
+        end
+    end
+    try
+        logged = simOut.get(variableName);
+        extracted = extract_workspace_values(logged);
+        if ~isempty(extracted)
+            values = extracted;
+        end
+    catch
+    end
+end
+
+function values = extract_workspace_values(logged)
+    values = [];
+    if isempty(logged)
+        return;
+    end
+    if isstruct(logged) && isfield(logged, 'signals') && isfield(logged.signals, 'values')
+        values = logged.signals.values;
+    else
+        values = logged;
+    end
+end
+
+function clear_base_var(variableName)
+    if evalin('base', sprintf('exist(''%s'', ''var'')', variableName))
+        evalin('base', sprintf('clear(''%s'')', variableName));
+    end
 end
 
 function add_block_if_missing(blockType, blockPath, varargin)
