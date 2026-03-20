@@ -221,7 +221,6 @@ function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleVa
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
-    patch_attention_score_norm_guard(mdlName);
     if useDelayedRamReadAddr
         patch_ram_read_addr_to_delay(mdlName);
     end

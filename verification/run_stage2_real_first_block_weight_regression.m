@@ -33,7 +33,6 @@ function result = run_stage2_real_first_block_weight_regression(rootDir, options
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
-    patch_attention_score_norm_guard(mdlName);
     retarget_weight_ref_to_sample_tables(tbName, weightRspCfg);
     ensure_weight_observers(tbName);
     ensure_weight_lane_workspace_logs(tbName);

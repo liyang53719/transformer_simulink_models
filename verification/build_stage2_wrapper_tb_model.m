@@ -14,10 +14,12 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
 
     buildDutModel = getFieldOr(options, 'BuildModel', true);
     persistModel = getFieldOr(options, 'PersistModel', false);
+    applyAttentionScoreNormGuard = getFieldOr(options, 'ApplyAttentionScoreNormGuard', true);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
     weightRspCfg = getFieldOr(options, 'WeightRspConfig', struct('tag_base', 0, 'tag_stride', 8));
 
     addpath(fullfile(rootDir, 'scripts'));
+    addpath(fullfile(rootDir, 'verification'));
     addpath(fullfile(rootDir, 'simulink', 'fsm'));
     ensure_stage2_weight_bus_objects();
     if buildDutModel
@@ -80,10 +82,25 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     build_weight_rsp_cfg_sources(tbName, weightRspCfg);
     connect_dut_inputs(tbName, inports);
     connect_dut_outputs(tbName, outports);
+    force_observed_output(tbName, outports, 'out_valid', [980, 160, 1010, 174]);
+
+    if isfield(weightRspCfg, 'sample_tables') && iscell(weightRspCfg.sample_tables) && ~isempty(weightRspCfg.sample_tables)
+        retarget_weight_ref_to_sample_tables(tbName, weightRspCfg);
+    end
 
     try
         Simulink.BlockDiagram.arrangeSystem(tbName);
     catch
+    end
+
+    if applyAttentionScoreNormGuard
+        ensure_attention_score_norm_guard(dutName);
+        set_param(dutName, 'SimulationCommand', 'update');
+    end
+
+    if getSimulinkBlockHandle([tbName '/out_valid']) == -1
+        error('build_stage2_wrapper_tb_model:ObservedOutputNotApplied', ...
+            'Failed to materialize out_valid observation sink in %s', char(tbName));
     end
 
     if persistModel
@@ -94,8 +111,18 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     info.tbName = tbName;
     info.tbPath = string(tbPath);
     info.dutName = dutName;
+    info.dutPath = string(dutPath);
     info.persistModel = persistModel;
     info.weightRspCfg = weightRspCfg;
+end
+
+function ensure_attention_score_norm_guard(dutName)
+    guardPath = [char(dutName) '/attention_u/row_sum_guard'];
+    patch_attention_score_norm_guard(dutName);
+    if getSimulinkBlockHandle(guardPath) == -1
+        error('build_stage2_wrapper_tb_model:GuardNotApplied', ...
+            'Failed to materialize attention score_norm guard in %s', char(dutName));
+    end
 end
 
 function clear_model_contents(mdlName)
@@ -228,6 +255,52 @@ function connect_dut_outputs(tbName, outports)
         add_line(tbName, 'tb_w_req_sel/5', 'tb_attn_v_req_addr/1', 'autorouting', 'on');
         add_line(tbName, 'tb_w_req_sel/6', 'tb_attn_v_req_valid/1', 'autorouting', 'on');
     end
+end
+
+function ensure_observed_output(tbName, outports, signalName, position)
+    blk = [tbName '/' char(signalName)];
+    if getSimulinkBlockHandle(blk) ~= -1
+        return;
+    end
+
+    portNum = find_output_port_num(outports, signalName);
+    add_block('simulink/Sinks/Out1', blk, 'Position', position);
+    add_line(tbName, ['dut/' num2str(portNum)], [char(signalName) '/1'], 'autorouting', 'on');
+end
+
+function force_observed_output(tbName, outports, signalName, position)
+    portNum = find_output_port_num(outports, signalName);
+    termBlk = [tbName '/term_' char(signalName)];
+    if getSimulinkBlockHandle(termBlk) ~= -1
+        try
+            delete_line(tbName, ['dut/' num2str(portNum)], ['term_' char(signalName) '/1']);
+        catch
+        end
+        delete_block(termBlk);
+    end
+
+    blk = [tbName '/' char(signalName)];
+    if getSimulinkBlockHandle(blk) ~= -1
+        try
+            delete_line(tbName, ['dut/' num2str(portNum)], [char(signalName) '/1']);
+        catch
+        end
+        delete_block(blk);
+    end
+
+    ensure_observed_output(tbName, outports, signalName, position);
+end
+
+function portNum = find_output_port_num(outports, signalName)
+    portNum = [];
+    for i = 1:numel(outports)
+        if strcmp(char(outports(i).name), char(signalName))
+            portNum = outports(i).port;
+            return;
+        end
+    end
+    error('build_stage2_wrapper_tb_model:MissingObservedPort', ...
+        'DUT output %s was not found in wrapper outputs', char(signalName));
 end
 
 function configure_soc_style_ddr_ref(subPath)
