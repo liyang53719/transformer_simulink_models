@@ -12,37 +12,32 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
         options = struct();
     end
 
-    buildDutModel = getFieldOr(options, 'BuildModel', true);
+    buildDutModel = getFieldOr(options, 'BuildModel', false);
     persistModel = getFieldOr(options, 'PersistModel', false);
-    applyAttentionScoreNormGuard = getFieldOr(options, 'ApplyAttentionScoreNormGuard', true);
-    kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
     weightRspCfg = getFieldOr(options, 'WeightRspConfig', struct('tag_base', 0, 'tag_stride', 8));
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'verification'));
     addpath(fullfile(rootDir, 'simulink', 'fsm'));
-    ensure_stage2_weight_bus_objects();
+    assert_stage2_manual_model_policy(buildDutModel, mfilename);
+
     if buildDutModel
-        implement_stage1_rmsnorm_qkv(rootDir, struct( ...
-            'StageProfile', 'stage2_memory_ready', ...
-            'KvAddressConfig', kvCfg, ...
-            'UseExternalWeightRsp', true));
+        error('build_stage2_wrapper_tb_model:BuildModelForbidden', ...
+            'Wrapper build no longer mutates the canonical DUT. Regenerate simulink/models/qwen2_block_top.slx manually before validation.');
     end
+
+    ensure_stage2_weight_bus_objects();
 
     dutPath = fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx');
     [~, dutName] = fileparts(dutPath);
-    if bdIsLoaded(dutName)
-        close_system(dutName, 0);
-    end
-    load_system(dutPath);
-    if ~has_root_inport(dutName, 'w_rd_rsp_bus')
-        close_system(dutName, 0);
-        implement_stage1_rmsnorm_qkv(rootDir, struct( ...
-            'StageProfile', 'stage2_memory_ready', ...
-            'KvAddressConfig', kvCfg, ...
-            'UseExternalWeightRsp', true));
+    if ~bdIsLoaded(dutName)
         load_system(dutPath);
-        [~, dutName] = fileparts(dutPath);
+    end
+    if ~has_root_inport(dutName, 'w_rd_rsp_bus')
+        error('build_stage2_wrapper_tb_model:MissingExternalWeightRsp', ...
+            ['Canonical DUT %s is not in external-weight-response mode. ' ...
+             'Manually regenerate simulink/models/qwen2_block_top.slx with UseExternalWeightRsp enabled before validation.'], ...
+            dutPath);
     end
     set_param(dutName, 'SimulationCommand', 'update');
 
@@ -92,11 +87,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
         Simulink.BlockDiagram.arrangeSystem(tbName);
     catch
     end
-
-    if applyAttentionScoreNormGuard
-        ensure_attention_score_norm_guard(dutName);
-        set_param(dutName, 'SimulationCommand', 'update');
-    end
+    validate_attention_score_norm_guard(dutName);
 
     if getSimulinkBlockHandle([tbName '/out_valid']) == -1
         error('build_stage2_wrapper_tb_model:ObservedOutputNotApplied', ...
@@ -116,12 +107,11 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     info.weightRspCfg = weightRspCfg;
 end
 
-function ensure_attention_score_norm_guard(dutName)
+function validate_attention_score_norm_guard(dutName)
     guardPath = [char(dutName) '/attention_u/row_sum_guard'];
-    patch_attention_score_norm_guard(dutName);
     if getSimulinkBlockHandle(guardPath) == -1
-        error('build_stage2_wrapper_tb_model:GuardNotApplied', ...
-            'Failed to materialize attention score_norm guard in %s', char(dutName));
+        error('build_stage2_wrapper_tb_model:MissingCanonicalGuard', ...
+            'Canonical DUT %s is missing attention_u/row_sum_guard. Regenerate simulink/models/qwen2_block_top.slx via scripts/implement_stage1_rmsnorm_qkv.m before validation.', char(dutName));
     end
 end
 

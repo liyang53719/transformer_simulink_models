@@ -19,14 +19,15 @@ function result = run_stage2_real_first_block_stage_delta_regression(rootDir, op
     ffnGateValidExtraDelay = getFieldOr(options, 'FfnGateValidExtraDelay', 0);
     ffnSwigluValidExtraDelay = getFieldOr(options, 'FfnSwigluValidExtraDelay', 0);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
+    assert_non_mutating_stage_delta_options(useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'verification'));
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
     signalSpecs = build_signal_specs();
 
-    baseline = simulate_stage_signals(rootDir, kvCfg, buildModel, [], signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
-    realSample = simulate_stage_signals(rootDir, kvCfg, buildModel, double(weightRspCfg.sample_values), signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
+    baseline = simulate_stage_signals(rootDir, kvCfg, buildModel, [], signalSpecs);
+    realSample = simulate_stage_signals(rootDir, kvCfg, buildModel, double(weightRspCfg.sample_values), signalSpecs);
 
     stageResults = repmat(struct( ...
         'name', '', ...
@@ -213,23 +214,13 @@ function alias = module_alias(moduleName)
     end
 end
 
-function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleValues, signalSpecs, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay)
+function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleValues, signalSpecs)
     modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
         'BuildModel', buildModel, ...
         'KvAddressConfig', kvCfg));
     tbName = char(modelInfo.tbName);
     mdlName = char(modelInfo.dutName);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
-
-    if useDelayedRamReadAddr
-        patch_ram_read_addr_to_delay(mdlName);
-    end
-    if ffnGateValidExtraDelay > 0
-        patch_ffn_gate_valid_delay(mdlName, ffnGateValidExtraDelay);
-    end
-    if ffnSwigluValidExtraDelay > 0
-        patch_ffn_swiglu_valid_delay(mdlName, ffnSwigluValidExtraDelay);
-    end
 
     enable_signal_logging(tbName, mdlName, signalSpecs);
 
@@ -251,111 +242,11 @@ function simResult = simulate_stage_signals(rootDir, kvCfg, buildModel, sampleVa
     simResult.out_hidden = double(extract_signal(yout, 'out_hidden'));
 end
 
-function patch_ffn_gate_valid_delay(mdlName, extraDelay)
-    if extraDelay <= 0
-        return;
-    end
-
-    subPath = [mdlName '/ffn_swiglu_u'];
-    try
-        delete_line(subPath, 'gateup_pair_valid_z/1', 'gate_norm_gate/2');
-    catch
-    end
-
-    prevBlock = 'gateup_pair_valid_z';
-    for i = 1:extraDelay
-        delayName = sprintf('gateup_pair_valid_gate_z%d', i);
-        delayPath = [subPath '/' delayName];
-        if getSimulinkBlockHandle(delayPath) == -1
-            add_block('simulink/Discrete/Unit Delay', delayPath, ...
-                'InitialCondition', '0', 'Position', [320 + 40 * i, 20, 350 + 40 * i, 45]);
-        end
-        try
-            delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
-        catch
-        end
-        add_line(subPath, [prevBlock '/1'], [delayName '/1'], 'autorouting', 'on');
-        prevBlock = delayName;
-    end
-
-    try
-        delete_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2');
-    catch
-    end
-    add_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2', 'autorouting', 'on');
-end
-
-function patch_ffn_swiglu_valid_delay(mdlName, extraDelay)
-    if extraDelay <= 0
-        return;
-    end
-
-    subPath = [mdlName '/ffn_swiglu_u'];
-    try
-        delete_line(subPath, 'swiglu_valid_z/1', 'swiglu_stage_gate/2');
-    catch
-    end
-
-    prevBlock = 'swiglu_valid_z';
-    for i = 1:extraDelay
-        delayName = sprintf('swiglu_valid_gate_z%d', i);
-        delayPath = [subPath '/' delayName];
-        if getSimulinkBlockHandle(delayPath) == -1
-            add_block('simulink/Discrete/Unit Delay', delayPath, ...
-                'InitialCondition', '0', 'Position', [540 + 40 * i, 20, 570 + 40 * i, 45]);
-        end
-        try
-            delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
-        catch
-        end
-        add_line(subPath, [prevBlock '/1'], [delayName '/1'], 'autorouting', 'on');
-        prevBlock = delayName;
-    end
-
-    try
-        delete_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2');
-    catch
-    end
-    add_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2', 'autorouting', 'on');
-end
-
-function patch_ram_read_addr_to_delay(mdlName)
-    specs = {
-        struct('path', [mdlName '/rmsnorm_u'], 'prefix', 'gamma'), ...
-        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'q'), ...
-        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'k'), ...
-        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'v'), ...
-        struct('path', [mdlName '/attention_u'], 'prefix', 'q'), ...
-        struct('path', [mdlName '/attention_u'], 'prefix', 'k'), ...
-        struct('path', [mdlName '/attention_u'], 'prefix', 'v'), ...
-        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'up'), ...
-        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'gate')};
-
-    for i = 1:numel(specs)
-        subPath = specs{i}.path;
-        prefix = specs{i}.prefix;
-        sramPath = [subPath '/' prefix '_sram'];
-        reqAddrCastPath = [subPath '/' prefix '_req_addr_u8'];
-        reqAddrDelayPath = [subPath '/' prefix '_req_addr_z'];
-        reqAddrDelayU8Path = [subPath '/' prefix '_req_addr_z_u8_exp'];
-        try
-            delete_line(subPath, [prefix '_req_addr_u8/1'], [prefix '_sram/4']);
-        catch
-        end
-        try
-            delete_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
-        catch
-        end
-        if getSimulinkBlockHandle(sramPath) ~= -1 && ...
-                getSimulinkBlockHandle(reqAddrCastPath) ~= -1 && ...
-                getSimulinkBlockHandle(reqAddrDelayPath) ~= -1
-            if getSimulinkBlockHandle(reqAddrDelayU8Path) == -1
-                add_block('simulink/Signal Attributes/Data Type Conversion', reqAddrDelayU8Path, ...
-                    'OutDataTypeStr', 'uint8', 'Position', [395, 18, 445, 42]);
-                add_line(subPath, [prefix '_req_addr_z/1'], [prefix '_req_addr_z_u8_exp/1'], 'autorouting', 'on');
-            end
-            add_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4'], 'autorouting', 'on');
-        end
+function assert_non_mutating_stage_delta_options(useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay)
+    if useDelayedRamReadAddr || ffnGateValidExtraDelay > 0 || ffnSwigluValidExtraDelay > 0
+        error('run_stage2_real_first_block_stage_delta_regression:VerificationCannotMutateDut', ...
+            ['Stage-delta verification no longer patches qwen2_block_top in memory. ' ...
+             'Move these structure changes into scripts/implement_stage1_rmsnorm_qkv.m and regenerate the tracked SLX before rerunning validation.']);
     end
 end
 

@@ -13,6 +13,10 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     useExternalWeightRsp = logical(getFieldOr(options, 'UseExternalWeightRsp', defaultExternalWeightRsp));
     saveModel = logical(getFieldOr(options, 'SaveModel', true));
     closeModel = logical(getFieldOr(options, 'CloseModel', true));
+    applyAttentionScoreNormGuard = logical(getFieldOr(options, 'ApplyAttentionScoreNormGuard', stageProfile == "stage2_memory_ready"));
+    useDelayedRamReadAddr = logical(getFieldOr(options, 'UseDelayedRamReadAddr', false));
+    ffnGateValidExtraDelay = double(getFieldOr(options, 'FfnGateValidExtraDelay', 0));
+    ffnSwigluValidExtraDelay = double(getFieldOr(options, 'FfnSwigluValidExtraDelay', 0));
     prefillCfg = resolve_prefill_schedule_config(rootDir, options);
 
     mdlPath = char(getFieldOr(options, 'ModelPath', fullfile(rootDir, 'simulink', 'models', 'qwen2_block_top.slx')));
@@ -37,6 +41,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     configure_ffn_swiglu([mdlName '/ffn_swiglu_u']);
     configure_residual([mdlName '/residual_u']);
     configure_rope([mdlName '/rope_u']);
+    apply_stage2_verification_structure_patches(mdlName, stageProfile, applyAttentionScoreNormGuard, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
 
     if stageProfile == "stage2_memory_ready"
         addpath(fullfile(rootDir, 'simulink', 'fsm'));
@@ -415,6 +420,155 @@ function remove_top_level_weight_req_merge_blocks(mdlName)
     names = {'rms_req_sel', 'qkv_req_sel', 'attn_req_sel', 'ffn_req_sel', 'w_req_bc'};
     for i = 1:numel(names)
         remove_top_block_if_exists(mdlName, names{i});
+    end
+end
+
+function apply_stage2_verification_structure_patches(mdlName, stageProfile, applyAttentionScoreNormGuard, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay)
+    if stageProfile ~= "stage2_memory_ready"
+        return;
+    end
+
+    if applyAttentionScoreNormGuard
+        ensure_attention_score_norm_guard(mdlName, 1e-6);
+    end
+    if useDelayedRamReadAddr
+        ensure_ram_read_addr_delay(mdlName);
+    end
+    if ffnGateValidExtraDelay > 0
+        ensure_ffn_gate_valid_delay(mdlName, ffnGateValidExtraDelay);
+    end
+    if ffnSwigluValidExtraDelay > 0
+        ensure_ffn_swiglu_valid_delay(mdlName, ffnSwigluValidExtraDelay);
+    end
+end
+
+function ensure_attention_score_norm_guard(mdlName, epsilon)
+    if nargin < 2 || isempty(epsilon)
+        epsilon = 1e-6;
+    end
+
+    subPath = [char(mdlName) '/attention_u'];
+    scoreNormPath = [subPath '/score_norm'];
+    rowSumPath = [subPath '/row_sum_accum'];
+    guardPath = [subPath '/row_sum_guard'];
+    epsPath = [subPath '/row_sum_guard_eps'];
+
+    if getSimulinkBlockHandle(scoreNormPath) == -1 || getSimulinkBlockHandle(rowSumPath) == -1
+        error('implement_stage1_rmsnorm_qkv:MissingAttentionGuardBlocks', ...
+            'Required attention blocks not found under %s', subPath);
+    end
+
+    if getSimulinkBlockHandle(guardPath) == -1
+        add_block('simulink/Math Operations/Add', guardPath, ...
+            'Inputs', '++', 'Position', [540, 25, 575, 55]);
+    end
+    if getSimulinkBlockHandle(epsPath) == -1
+        add_block('simulink/Sources/Constant', epsPath, ...
+            'Value', num2str(double(epsilon), '%.17g'), ...
+            'Position', [500, 5, 530, 25]);
+    else
+        set_param(epsPath, 'Value', num2str(double(epsilon), '%.17g'));
+    end
+
+    safe_delete_line(subPath, 'row_sum_accum/1', 'score_norm/2');
+    safe_delete_line(subPath, 'row_sum_accum/1', 'row_sum_guard/1');
+    safe_delete_line(subPath, 'row_sum_guard_eps/1', 'row_sum_guard/2');
+    safe_delete_line(subPath, 'row_sum_guard/1', 'score_norm/2');
+
+    safe_add_line(subPath, 'row_sum_accum/1', 'row_sum_guard/1');
+    safe_add_line(subPath, 'row_sum_guard_eps/1', 'row_sum_guard/2');
+    safe_add_line(subPath, 'row_sum_guard/1', 'score_norm/2');
+end
+
+function ensure_ffn_gate_valid_delay(mdlName, extraDelay)
+    if extraDelay <= 0
+        return;
+    end
+
+    subPath = [mdlName '/ffn_swiglu_u'];
+    safe_delete_line(subPath, 'gateup_pair_valid_z/1', 'gate_norm_gate/2');
+
+    prevBlock = 'gateup_pair_valid_z';
+    for i = 1:extraDelay
+        delayName = sprintf('gateup_pair_valid_gate_z%d', i);
+        delayPath = [subPath '/' delayName];
+        if getSimulinkBlockHandle(delayPath) == -1
+            add_block('simulink/Discrete/Unit Delay', delayPath, ...
+                'InitialCondition', '0', 'Position', [320 + 40 * i, 20, 350 + 40 * i, 45]);
+        end
+        safe_delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        safe_add_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        prevBlock = delayName;
+    end
+
+    safe_delete_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2');
+    safe_add_line(subPath, [prevBlock '/1'], 'gate_norm_gate/2');
+end
+
+function ensure_ffn_swiglu_valid_delay(mdlName, extraDelay)
+    if extraDelay <= 0
+        return;
+    end
+
+    subPath = [mdlName '/ffn_swiglu_u'];
+    safe_delete_line(subPath, 'swiglu_valid_z/1', 'swiglu_stage_gate/2');
+
+    prevBlock = 'swiglu_valid_z';
+    for i = 1:extraDelay
+        delayName = sprintf('swiglu_valid_gate_z%d', i);
+        delayPath = [subPath '/' delayName];
+        if getSimulinkBlockHandle(delayPath) == -1
+            add_block('simulink/Discrete/Unit Delay', delayPath, ...
+                'InitialCondition', '0', 'Position', [540 + 40 * i, 20, 570 + 40 * i, 45]);
+        end
+        safe_delete_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        safe_add_line(subPath, [prevBlock '/1'], [delayName '/1']);
+        prevBlock = delayName;
+    end
+
+    safe_delete_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2');
+    safe_add_line(subPath, [prevBlock '/1'], 'swiglu_stage_gate/2');
+end
+
+function ensure_ram_read_addr_delay(mdlName)
+    specs = {
+        struct('path', [mdlName '/rmsnorm_u'], 'prefix', 'gamma'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'q'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'k'), ...
+        struct('path', [mdlName '/qkv_proj_u'], 'prefix', 'v'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'q'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'k'), ...
+        struct('path', [mdlName '/attention_u'], 'prefix', 'v'), ...
+        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'up'), ...
+        struct('path', [mdlName '/ffn_swiglu_u'], 'prefix', 'gate')};
+
+    for i = 1:numel(specs)
+        subPath = specs{i}.path;
+        prefix = specs{i}.prefix;
+        sramPath = [subPath '/' prefix '_sram'];
+        reqAddrCastPath = [subPath '/' prefix '_req_addr_u8'];
+        reqAddrDelayPath = [subPath '/' prefix '_req_addr_z'];
+        reqAddrDelayU8Path = [subPath '/' prefix '_req_addr_z_u8_exp'];
+
+        safe_delete_line(subPath, [prefix '_req_addr_u8/1'], [prefix '_sram/4']);
+        safe_delete_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
+        if getSimulinkBlockHandle(sramPath) ~= -1 && ...
+                getSimulinkBlockHandle(reqAddrCastPath) ~= -1 && ...
+                getSimulinkBlockHandle(reqAddrDelayPath) ~= -1
+            if getSimulinkBlockHandle(reqAddrDelayU8Path) == -1
+                add_block('simulink/Signal Attributes/Data Type Conversion', reqAddrDelayU8Path, ...
+                    'OutDataTypeStr', 'uint8', 'Position', [395, 18, 445, 42]);
+            end
+            safe_add_line(subPath, [prefix '_req_addr_z/1'], [prefix '_req_addr_z_u8_exp/1']);
+            safe_add_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
+        end
+    end
+end
+
+function safe_delete_line(sysPath, src, dst)
+    try
+        delete_line(sysPath, src, dst);
+    catch
     end
 end
 
