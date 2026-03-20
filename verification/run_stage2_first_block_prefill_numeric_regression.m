@@ -72,7 +72,6 @@ end
 function configure_prefill_tb_sources(tbName, stimulus)
     set_constant_value(tbName, 'mode_decode', stimulus.mode_decode(1));
     set_constant_value(tbName, 'cfg_seq_len', stimulus.cfg_seq_len);
-    set_constant_value(tbName, 'cfg_token_pos', stimulus.cfg_token_pos);
     set_constant_value(tbName, 'cfg_eps', stimulus.cfg_eps);
     set_constant_value(tbName, 'stop_req', stimulus.stop_req);
     set_constant_value(tbName, 'cfg_weight_num_heads', stimulus.cfg_weight_num_heads);
@@ -85,8 +84,27 @@ function configure_prefill_tb_sources(tbName, stimulus)
 
     install_workspace_source(tbName, 'start', 'tb_prefill_start_seq', timeseries(logical(stimulus.start(:)), double(stimulus.time(:))));
     install_workspace_source(tbName, 'in_valid', 'tb_prefill_in_valid_seq', timeseries(logical(stimulus.in_valid(:)), double(stimulus.time(:))));
+    install_numeric_source_if_needed(tbName, 'cfg_token_pos', 'tb_prefill_cfg_token_pos_seq', stimulus.cfg_token_pos, stimulus.time);
     install_workspace_source(tbName, 'in_hidden', 'tb_prefill_in_hidden_seq', make_sfix64_en30_timeseries(stimulus.in_hidden(:), stimulus.time(:)));
     install_workspace_source(tbName, 'in_residual', 'tb_prefill_in_residual_seq', make_sfix64_en30_timeseries(stimulus.in_residual(:), stimulus.time(:)));
+end
+
+function install_numeric_source_if_needed(tbName, signalName, variableName, values, time)
+    values = double(values(:));
+    if numel(values) <= 1
+        set_constant_value(tbName, signalName, values(1));
+        return;
+    end
+    if numel(values) ~= numel(time)
+        error('run_stage2_first_block_prefill_numeric_regression:BadStimulusVector', ...
+            'Stimulus vector %s must match time length', signalName);
+    end
+    install_workspace_source(tbName, signalName, variableName, make_ufix17_timeseries(values, time));
+end
+
+function ts = make_ufix17_timeseries(values, time)
+    fixedValues = fi(double(values(:)), false, 17, 0);
+    ts = timeseries(fixedValues, double(time(:)));
 end
 
 function ts = make_sfix64_en30_timeseries(values, time)

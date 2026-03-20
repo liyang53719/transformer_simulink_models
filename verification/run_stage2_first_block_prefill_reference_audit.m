@@ -45,16 +45,22 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     simOut = sim(tbName, 'StopTime', num2str(numericBaseline.stop_time), 'SaveOutput', 'on', ...
         'OutputSaveName', 'yout', 'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on');
     yout = simOut.get('yout');
-    outValid = double(extract_signal(yout, 'out_valid'));
-    outHidden = double(extract_signal(yout, 'out_hidden'));
+    outValidRaw = double(extract_signal(yout, 'out_valid'));
+    sampleTimes = double(numericBaseline.stimulus.time(:));
+    outValid = double(resample_signal_on_times(yout, 'out_valid', sampleTimes));
+    outHidden = double(resample_signal_on_times(yout, 'out_hidden', sampleTimes));
     dutValidIndices = find(outValid(:) > 0.5);
     dutValidHidden = outHidden(dutValidIndices);
+    rawValidIndices = find(outValidRaw(:) > 0.5);
 
     result = struct();
     result.params_source = refBaseline.params_source;
     result.reference_token_count = double(refBaseline.token_count);
     result.reference_prefill_out_hidden_mean = double(refBaseline.reference_prefill_out_hidden_mean(:));
     result.reference_scalar_contract_out_hidden = double(refBaseline.reference_scalar_contract_out_hidden(:));
+    result.sample_times = sampleTimes;
+    result.raw_valid_indices = double(rawValidIndices(:));
+    result.raw_valid_count = numel(rawValidIndices);
     result.dut_valid_indices = double(dutValidIndices(:));
     result.dut_valid_out_hidden = double(dutValidHidden(:));
     result.dut_valid_count = numel(dutValidHidden);
@@ -81,8 +87,8 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
 
     fprintf('Stage2 first-block prefill reference audit PASS\n');
     fprintf('  params_source=%s\n', char(result.params_source));
-    fprintf('  dut_valid_count=%d reference_token_count=%d sample_count_match=%d\n', ...
-        result.dut_valid_count, result.reference_token_count, result.sample_count_matches_reference);
+    fprintf('  dut_valid_count=%d raw_valid_count=%d reference_token_count=%d sample_count_match=%d\n', ...
+        result.dut_valid_count, result.raw_valid_count, result.reference_token_count, result.sample_count_matches_reference);
     fprintf('  dut_valid_out_hidden=%s\n', mat2str(result.dut_valid_out_hidden', 6));
     fprintf('  ref_full_mean=%s\n', mat2str(result.reference_prefill_out_hidden_mean', 6));
     fprintf('  ref_contract=%s\n', mat2str(result.reference_scalar_contract_out_hidden', 6));
@@ -113,7 +119,6 @@ end
 function configure_prefill_tb_sources(tbName, stimulus)
     set_constant_value(tbName, 'mode_decode', stimulus.mode_decode(1));
     set_constant_value(tbName, 'cfg_seq_len', stimulus.cfg_seq_len);
-    set_constant_value(tbName, 'cfg_token_pos', stimulus.cfg_token_pos);
     set_constant_value(tbName, 'cfg_eps', stimulus.cfg_eps);
     set_constant_value(tbName, 'stop_req', stimulus.stop_req);
     set_constant_value(tbName, 'cfg_weight_num_heads', stimulus.cfg_weight_num_heads);
@@ -126,8 +131,27 @@ function configure_prefill_tb_sources(tbName, stimulus)
 
     install_workspace_source(tbName, 'start', 'tb_prefill_start_seq', timeseries(logical(stimulus.start(:)), double(stimulus.time(:))));
     install_workspace_source(tbName, 'in_valid', 'tb_prefill_in_valid_seq', timeseries(logical(stimulus.in_valid(:)), double(stimulus.time(:))));
+    install_numeric_source_if_needed(tbName, 'cfg_token_pos', 'tb_prefill_cfg_token_pos_seq', stimulus.cfg_token_pos, stimulus.time);
     install_workspace_source(tbName, 'in_hidden', 'tb_prefill_in_hidden_seq', make_sfix64_en30_timeseries(stimulus.in_hidden(:), stimulus.time(:)));
     install_workspace_source(tbName, 'in_residual', 'tb_prefill_in_residual_seq', make_sfix64_en30_timeseries(stimulus.in_residual(:), stimulus.time(:)));
+end
+
+function install_numeric_source_if_needed(tbName, signalName, variableName, values, time)
+    values = double(values(:));
+    if numel(values) <= 1
+        set_constant_value(tbName, signalName, values(1));
+        return;
+    end
+    if numel(values) ~= numel(time)
+        error('run_stage2_first_block_prefill_reference_audit:BadStimulusVector', ...
+            'Stimulus vector %s must match time length', signalName);
+    end
+    install_workspace_source(tbName, signalName, variableName, make_ufix17_timeseries(values, time));
+end
+
+function ts = make_ufix17_timeseries(values, time)
+    fixedValues = fi(double(values(:)), false, 17, 0);
+    ts = timeseries(fixedValues, double(time(:)));
 end
 
 function ts = make_sfix64_en30_timeseries(values, time)
@@ -196,6 +220,17 @@ function configure_from_workspace_block(blockPath)
 end
 
 function values = extract_signal(yout, name)
+    sig = extract_dataset_signal(yout, name);
+    values = sig.Values.Data;
+end
+
+function values = resample_signal_on_times(yout, name, sampleTimes)
+    sig = extract_dataset_signal(yout, name);
+    sampled = resample(sig.Values, double(sampleTimes(:)));
+    values = sampled.Data;
+end
+
+function sig = extract_dataset_signal(yout, name)
     for i = 1:yout.numElements
         sig = yout.get(i);
         sigName = string(sig.Name);
@@ -205,7 +240,6 @@ function values = extract_signal(yout, name)
         catch
         end
         if sigName == string(name) || endsWith(blockPath, "/" + string(name))
-            values = sig.Values.Data;
             return;
         end
     end

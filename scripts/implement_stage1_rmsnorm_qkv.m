@@ -135,6 +135,7 @@ function build_prefill_path(mdlName, stageProfile)
     force_add_line(mdlName, 'rope_u/1', 'rmsnorm_u/1');
     safe_add_line(mdlName, 'cfg_eps/1', 'rmsnorm_u/2');
     safe_add_line(mdlName, 'rmsnorm_u/1', 'qkv_proj_u/1');
+    safe_add_line(mdlName, 'in_valid/1', 'rmsnorm_u/6');
 
     if stageProfile == "stage2_memory_ready"
         delete_blocks_if_exist(mdlName, { ...
@@ -148,7 +149,7 @@ function build_prefill_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'cfg_weight_page_base/1', 'weight_addr_map_u/3');
         safe_add_line(mdlName, 'cfg_weight_page_stride/1', 'weight_addr_map_u/4');
 
-        force_add_line(mdlName, 'weight_addr_map_u/1', 'rmsnorm_u/4');
+        force_add_line(mdlName, 'weight_addr_map_u/1', 'rmsnorm_u/5');
         force_add_line(mdlName, 'weight_addr_map_u/2', 'qkv_proj_u/3');
         force_add_line(mdlName, 'weight_addr_map_u/3', 'attention_u/3');
         force_add_line(mdlName, 'weight_addr_map_u/4', 'ffn_swiglu_u/3');
@@ -563,15 +564,16 @@ function ensure_ram_read_addr_delay(mdlName)
         reqAddrDelayPath = [subPath '/' prefix '_req_addr_z'];
         reqAddrDelayU8Path = [subPath '/' prefix '_req_addr_z_u8_exp'];
 
-        safe_delete_line(subPath, [prefix '_req_addr_u8/1'], [prefix '_sram/4']);
+        safe_delete_line(subPath, [prefix '_sram_addr_alias/1'], [prefix '_sram/4']);
         safe_delete_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
         if getSimulinkBlockHandle(sramPath) ~= -1 && ...
                 getSimulinkBlockHandle(reqAddrCastPath) ~= -1 && ...
                 getSimulinkBlockHandle(reqAddrDelayPath) ~= -1
-            if getSimulinkBlockHandle(reqAddrDelayU8Path) == -1
-                add_block('simulink/Signal Attributes/Data Type Conversion', reqAddrDelayU8Path, ...
-                    'OutDataTypeStr', 'uint8', 'Position', [395, 18, 445, 42]);
-            end
+            delete_blocks_if_exist(subPath, {[prefix '_req_addr_z_u8_exp']});
+            add_block('simulink/User-Defined Functions/MATLAB Function', reqAddrDelayU8Path, ...
+                'Position', [365, 8, 455, 52]);
+            set_matlab_function_script(reqAddrDelayU8Path, cache_addr_alias_code(), ...
+                'ensure_ram_read_addr_delay:MissingEMChart');
             safe_add_line(subPath, [prefix '_req_addr_z/1'], [prefix '_req_addr_z_u8_exp/1']);
             safe_add_line(subPath, [prefix '_req_addr_z_u8_exp/1'], [prefix '_sram/4']);
         end
@@ -1362,12 +1364,15 @@ end
 function configure_rmsnorm(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 40, 60, 54]);
-    add_block('simulink/Sources/In1', [subPath '/eps_in'], 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 40, 60, 54]);
+    add_block('simulink/Sources/In1', [subPath '/eps_in'], 'Port', '2', 'Position', [30, 110, 60, 124]);
     add_block('simulink/Sources/In1', [subPath '/w_rsp_bus'], 'Position', [30, 165, 60, 179], ...
+        'Port', '3', ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
     add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 200, 60, 214], ...
+        'Port', '4', ...
         'OutDataTypeStr', 'Bus: WeightAddrRmsBus');
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '5', 'Position', [30, 235, 60, 249]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', 'gamma_data,gamma_valid', [90, 145, 130, 200]);
     add_or_reset_in_bus_element(subPath, 'gamma_addr_be', 4, 'gamma_addr', [90, 205, 140, 225]);
     add_block('simulink/Math Operations/Product', [subPath '/x_square'], ...
@@ -1397,7 +1402,7 @@ function configure_rmsnorm(subPath)
     safe_add_line(subPath, 'sqrt_denom/1', 'x_norm/2');
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
 
-    [gammaOut, reqAddr, reqValid] = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', ...
+    [gammaOut, reqAddr, reqValid] = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'gamma_addr_be/1', 410, 55);
     safe_add_line(subPath, reqAddr, 'req_bc/1');
     safe_add_line(subPath, reqValid, 'req_bc/2');
@@ -1427,6 +1432,8 @@ function configure_qkv_proj(subPath)
         'Operator', 'AND', 'Position', [440, 145, 470, 170]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/kv_pair_valid_z'], ...
         'InitialCondition', '0', 'Position', [490, 145, 520, 170]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/x_valid_z'], ...
+        'InitialCondition', '0', 'Position', [390, 185, 420, 210]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/fused_qkv_valid'], ...
         'Operator', 'AND', 'Position', [440, 185, 470, 210]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/fused_qkv_valid_z'], ...
@@ -1464,11 +1471,11 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
-    [qOut, qReqAddr, qReqValid, ~] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
+    [qOut, qReqAddr, qReqValid, ~] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
-    [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
+    [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 105);
-    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
+    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 195);
 
     safe_add_line(subPath, qOut, 'qk_sum/1');
@@ -1482,7 +1489,8 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, kDataValid, 'kv_pair_valid/1');
     safe_add_line(subPath, vDataValid, 'kv_pair_valid/2');
     safe_add_line(subPath, 'kv_pair_valid/1', 'kv_pair_valid_z/1');
-    safe_add_line(subPath, 'x_valid/1', 'fused_qkv_valid/1');
+    safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
+    safe_add_line(subPath, 'x_valid_z/1', 'fused_qkv_valid/1');
     safe_add_line(subPath, 'kv_pair_valid_z/1', 'fused_qkv_valid/2');
     safe_add_line(subPath, 'fused_qkv_valid/1', 'fused_qkv_valid_z/1');
     safe_add_line(subPath, 'fused_qkv_valid_z/1', 'q_valid_alias/1');
@@ -1565,6 +1573,8 @@ function configure_attention(subPath)
         'Operator', 'AND', 'Position', [250, 95, 280, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/qk_pair_valid_z'], ...
         'InitialCondition', '0', 'Position', [300, 95, 330, 120]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/x_valid_z'], ...
+        'InitialCondition', '0', 'Position', [200, 95, 230, 120]);
     add_block('simulink/Math Operations/Product', [subPath '/score_stage_gate'], ...
         'Inputs', '**', 'Position', [340, 55, 375, 95]);
     add_block('simulink/Math Operations/Add', [subPath '/score_tile_bias'], ...
@@ -1634,17 +1644,18 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'head_group_bias/1', 'head_group_norm/1');
     safe_add_line(subPath, 'head_group_den/1', 'head_group_norm/2');
 
-    [qOut, qReqAddr, qReqValid, qDataValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', ...
+    [qOut, qReqAddr, qReqValid, qDataValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
-    [kOut, kReqAddr, kReqValid, ~] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', ...
+    [kOut, kReqAddr, kReqValid, ~] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95);
-    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', ...
+    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 175);
 
     safe_add_line(subPath, qOut, 'head_group_stage_z/1');
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
     safe_add_line(subPath, kOut, 'score_mul/2');
-    safe_add_line(subPath, 'x_valid/1', 'qk_pair_valid/1');
+    safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
+    safe_add_line(subPath, 'x_valid_z/1', 'qk_pair_valid/1');
     safe_add_line(subPath, qDataValid, 'qk_pair_valid/2');
     safe_add_line(subPath, 'qk_pair_valid/1', 'qk_pair_valid_z/1');
     safe_add_line(subPath, 'score_mul/1', 'score_stage_gate/1');
@@ -1730,6 +1741,8 @@ function configure_ffn_swiglu(subPath)
         'Position', [350, 85, 385, 135]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/gateup_pair_valid'], ...
         'Operator', 'AND', 'Position', [210, 20, 240, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/x_valid_z'], ...
+        'InitialCondition', '0', 'Position', [155, 20, 185, 45]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_z'], ...
         'InitialCondition', '0', 'Position', [265, 20, 295, 45]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/gateup_pair_valid_gate_z1'], ...
@@ -1771,14 +1784,15 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
-    [upOut, upReqAddr, upReqValid, upDataValid] = add_streamed_weight_mul(subPath, 'up', 'x_in/1', ...
+    [upOut, upReqAddr, upReqValid, upDataValid] = add_streamed_weight_mul(subPath, 'up', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
-    [gateOut, gateReqAddr, gateReqValid, gateDataValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', ...
+    [gateOut, gateReqAddr, gateReqValid, gateDataValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 145);
-    [downOut, downReqAddr, downReqValid, downDataValid] = add_streamed_weight_mul(subPath, 'down', 'swiglu_stage_gate/1', ...
+    [downOut, downReqAddr, downReqValid, downDataValid] = add_streamed_weight_mul(subPath, 'down', 'swiglu_stage_gate/1', 'swiglu_valid_gate_z2/1', ...
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 580, 145);
 
-    safe_add_line(subPath, 'x_valid/1', 'gateup_pair_valid/1');
+    safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
+    safe_add_line(subPath, 'x_valid_z/1', 'gateup_pair_valid/1');
     safe_add_line(subPath, upDataValid, 'gateup_pair_valid/2');
     safe_add_line(subPath, 'gateup_pair_valid/1', 'gateup_pair_valid_z/1');
     safe_add_line(subPath, 'gateup_pair_valid_z/1', 'gateup_pair_valid_gate_z1/1');
@@ -1797,8 +1811,8 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'swiglu_valid_gate_z1/1', 'swiglu_valid_gate_z2/1');
     safe_add_line(subPath, 'swiglu_mul/1', 'swiglu_stage_gate/1');
     safe_add_line(subPath, 'swiglu_valid_gate_z2/1', 'swiglu_stage_gate/2');
-    safe_add_line(subPath, 'swiglu_valid_z/1', 'down_valid_z/1');
-    safe_add_line(subPath, 'swiglu_valid_z/1', 'down_pair_valid/1');
+    safe_add_line(subPath, 'swiglu_valid_gate_z2/1', 'down_valid_z/1');
+    safe_add_line(subPath, 'down_valid_z/1', 'down_pair_valid/1');
     safe_add_line(subPath, downDataValid, 'down_pair_valid/2');
     safe_add_line(subPath, 'down_pair_valid/1', 'down_pair_valid_z1/1');
     safe_add_line(subPath, 'down_pair_valid_z1/1', 'down_pair_valid_z2/1');
@@ -1822,7 +1836,7 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'req_bc/1', 'w_req_bus/1');
 end
 
-function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed_weight_mul(subPath, prefix, inSig, ddrDataSig, ddrValidSig, reqAddrSig, x0, y0)
+function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed_weight_mul(subPath, prefix, inSig, reqEnableSig, ddrDataSig, ddrValidSig, reqAddrSig, x0, y0)
     % Model off-chip DDR fetch + on-chip SRAM cache using HDL RAMS blocks.
     reqAddrCast = [prefix '_req_addr_u8'];
     reqAddrOutCast = [prefix '_req_addr_double'];
@@ -1847,7 +1861,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     mulBlk = [prefix '_mul'];
 
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' reqAddrCast], ...
-        'OutDataTypeStr', 'uint8', 'Position', [x0 + 145, y0 - 2, x0 + 185, y0 + 22]);
+        'OutDataTypeStr', 'int32', 'Position', [x0 + 145, y0 - 2, x0 + 185, y0 + 22]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' reqAddrOutCast], ...
         'OutDataTypeStr', 'single', 'Position', [x0 + 195, y0 - 2, x0 + 235, y0 + 22]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/' reqAddrDelay], ...
@@ -1863,8 +1877,8 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
         'OutDataTypeStr', 'uint8', 'Position', [x0 + 55, y0 + 45, x0 + 90, y0 + 65]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' ddrValidCast], ...
         'OutDataTypeStr', 'boolean', 'Position', [x0 + 55, y0 + 75, x0 + 90, y0 + 95]);
-    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramAddrAlias], ...
-        'OutDataTypeStr', 'single', 'Position', [x0 + 145, y0 - 35, x0 + 185, y0 - 15]);
+    add_block('simulink/User-Defined Functions/MATLAB Function', [subPath '/' sramAddrAlias], ...
+        'Position', [x0 + 135, y0 - 40, x0 + 220, y0 - 5]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramDinAlias], ...
         'OutDataTypeStr', 'single', 'Position', [x0 + 55, y0 + 5, x0 + 95, y0 + 25]);
     add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' sramWeAlias], ...
@@ -1890,6 +1904,8 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
 
     add_block('simulink/Math Operations/Product', [subPath '/' mulBlk], ...
         'Inputs', '**', 'OutDataTypeStr', 'single', 'Position', [x0 + 305, y0 + 45, x0 + 340, y0 + 85]);
+    set_matlab_function_script([subPath '/' sramAddrAlias], cache_addr_alias_code(), ...
+        'add_streamed_weight_mul:MissingSramAddrAlias');
 
     safe_add_line(subPath, reqAddrSig, [reqAddrCast '/1']);
     safe_add_line(subPath, [reqAddrCast '/1'], [reqAddrOutCast '/1']);
@@ -1903,14 +1919,13 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     safe_add_line(subPath, [sramDinAlias '/1'], [sramDinTerm '/1']);
     safe_add_line(subPath, [sramWeAlias '/1'], [sramWeTerm '/1']);
 
-    safe_add_line(subPath, [sramValid '/1'], [reqNeeded '/1']);
-    safe_add_line(subPath, [reqNeeded '/1'], [reqValidCast '/1']);
+    safe_add_line(subPath, reqEnableSig, [reqValidCast '/1']);
 
     % Simple Dual Port RAM expected ports: din, wr_addr, we, rd_addr -> dout.
     safe_add_line(subPath, [ddrDataCast '/1'], [sram '/1']);
-    safe_add_line(subPath, [reqAddrCast '/1'], [sram '/2']);
+    safe_add_line(subPath, [sramAddrAlias '/1'], [sram '/2']);
     safe_add_line(subPath, [ddrValidCast '/1'], [sram '/3']);
-    safe_add_line(subPath, [reqAddrCast '/1'], [sram '/4']);
+    safe_add_line(subPath, [sramAddrAlias '/1'], [sram '/4']);
 
     safe_add_line(subPath, [sram '/1'], [sramDataCast '/1']);
     safe_add_line(subPath, [sram '/1'], [sramDoutAlias '/1']);
@@ -1919,9 +1934,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     safe_add_line(subPath, [sramValid '/1'], [sramSel '/2']);
     safe_add_line(subPath, [ddrDataCast '/1'], [sramSel '/3']);
 
-    safe_add_line(subPath, [sramValid '/1'], [validOr '/1']);
-    safe_add_line(subPath, [ddrValidCast '/1'], [validOr '/2']);
-    safe_add_line(subPath, [validOr '/1'], [sramValid '/1']);
+    safe_add_line(subPath, [ddrValidCast '/1'], [sramValid '/1']);
 
     safe_add_line(subPath, inSig, [mulBlk '/1']);
     safe_add_line(subPath, [sramSel '/1'], [mulBlk '/2']);
@@ -1929,7 +1942,16 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     mulOut = [mulBlk '/1'];
     reqAddrOutSig = [reqAddrDelay '/1'];
     reqValidOutSig = [reqValidCast '/1'];
-    dataValidOutSig = [validOr '/1'];
+    dataValidOutSig = [ddrValidCast '/1'];
+end
+
+function code = cache_addr_alias_code()
+    code = sprintf([ ...
+        'function addr_alias = cache_addr_alias(addr_full)\n' ...
+        '%%#codegen\n' ...
+        'addr_i32 = int32(addr_full);\n' ...
+        'addr_alias = uint8(bitand(addr_i32, int32(255)));\n' ...
+        'end\n']);
 end
 
 function set_matlab_function_script(blockPath, code, errorId)

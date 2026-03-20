@@ -8,6 +8,8 @@ function baseline = get_stage2_first_block_prefill_numeric_baseline(options)
     numTokens = max(1, round(double(getFieldOr(options, 'NumTokens', 4))));
     tailCycles = max(16, round(double(getFieldOr(options, 'TailCycles', 16))));
     stopTime = double(getFieldOr(options, 'StopTime', numTokens + tailCycles));
+    driveTokenPosSequence = logical(getFieldOr(options, 'DriveTokenPosSequence', numTokens ~= 4));
+    tokenPosStart = max(1, round(double(getFieldOr(options, 'TokenPosStart', 1))));
     time = (0:stopTime)';
 
     tokenIndex = (0:numTokens-1)';
@@ -28,7 +30,13 @@ function baseline = get_stage2_first_block_prefill_numeric_baseline(options)
     baseline.stimulus.in_hidden = [tokenHidden; zeros(max(0, numel(time) - numTokens), 1)];
     baseline.stimulus.in_residual = [tokenResidual; zeros(max(0, numel(time) - numTokens), 1)];
     baseline.stimulus.cfg_seq_len = numTokens;
-    baseline.stimulus.cfg_token_pos = 1;
+    if driveTokenPosSequence
+        tokenPosSeq = tokenPosStart + (0:numTokens-1)';
+        tailTokenPos = repmat(tokenPosSeq(end), max(0, numel(time) - numTokens), 1);
+        baseline.stimulus.cfg_token_pos = [tokenPosSeq; tailTokenPos];
+    else
+        baseline.stimulus.cfg_token_pos = tokenPosStart;
+    end
     baseline.stimulus.cfg_eps = 1e-5;
     baseline.stimulus.stop_req = 0;
     baseline.stimulus.cfg_weight_num_heads = 12;
