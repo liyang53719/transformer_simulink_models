@@ -17,7 +17,7 @@ function result = run_stage2_first_block_prefill_numeric_regression(rootDir, opt
 
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
-    baseline = get_stage2_first_block_prefill_numeric_baseline();
+    baseline = get_stage2_first_block_prefill_numeric_baseline(getFieldOr(options, 'BaselineOptions', struct()));
 
     modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
         'BuildModel', buildModel, ...

@@ -16,7 +16,7 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     layerIndex = double(getFieldOr(options, 'LayerIndex', 1));
     stimulus = getFieldOr(options, 'Stimulus', []);
     if isempty(stimulus)
-        numericBaseline = get_stage2_first_block_prefill_numeric_baseline();
+        numericBaseline = get_stage2_first_block_prefill_numeric_baseline(getFieldOr(options, 'BaselineOptions', struct()));
         stimulus = numericBaseline.stimulus;
     end
 

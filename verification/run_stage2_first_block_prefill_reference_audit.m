@@ -22,10 +22,12 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
 
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
     paramsSource = char(getFieldOr(options, 'ParamsSource', 'module_awq'));
-    numericBaseline = get_stage2_first_block_prefill_numeric_baseline();
+    baselineOptions = getFieldOr(options, 'BaselineOptions', struct('NumTokens', 64));
+    numericBaseline = get_stage2_first_block_prefill_numeric_baseline(baselineOptions);
     refBaseline = get_stage2_first_block_prefill_reference_baseline(rootDir, struct( ...
         'ParamsSource', paramsSource, ...
         'LayerIndex', getFieldOr(options, 'LayerIndex', 1), ...
+        'BaselineOptions', baselineOptions, ...
         'Stimulus', numericBaseline.stimulus));
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
 

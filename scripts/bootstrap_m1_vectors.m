@@ -16,7 +16,7 @@ function bootstrap_m1_vectors(rootDir, options)
     rng(42);
 
     hiddenSize = double(getFieldOr(options, 'HiddenSize', 16));
-    tokensPrefill = double(getFieldOr(options, 'TokensPrefill', 4));
+    tokensPrefill = double(getFieldOr(options, 'TokensPrefill', 64));
     decodeKvLen = double(getFieldOr(options, 'DecodeKvLen', 3));
 
     cfg = struct('ResidualScale', single(0.1), 'KvMixScale', single(0.05));

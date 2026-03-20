@@ -111,7 +111,7 @@ function result = run_single_target_regression(paramsFileOrModule, options, root
 
     hp = params.Hyperparameters;
 
-    vecOpt = struct('HiddenSize', double(hp.HiddenSize), 'TokensPrefill', 4, 'DecodeKvLen', 3);
+    vecOpt = struct('HiddenSize', double(hp.HiddenSize), 'TokensPrefill', 64, 'DecodeKvLen', 3);
 
     refCtx = struct();
     refCtx.Parameters = params;

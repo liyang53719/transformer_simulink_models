@@ -21,9 +21,11 @@ function result = run_stage2_protocol_semantics_audit(rootDir, options)
     forbid_direct_edge(mdlName, 'out_ready/1', 'in_ready/1');
     forbid_direct_edge(mdlName, 'eos_in/1', 'eos_out/1');
 
-    require_edge(mdlName, 'ctrl_fsm_u/1', 'out_valid/1');
+    forbid_direct_edge(mdlName, 'ctrl_fsm_u/1', 'out_valid/1');
+    require_edge(mdlName, 'residual_u/2', 'out_valid/1');
     require_edge(mdlName, 'stage2_in_ready_not/1', 'in_ready/1');
     require_edge(mdlName, 'stage2_eos_gate/1', 'eos_out/1');
+    require_edge(mdlName, 'stage2_out_fire_gate/1', 'ctrl_fsm_u/5');
     require_edge(mdlName, 'axi_master_wr_u/1', 'kv_cache_wr_data/1');
     require_edge(mdlName, 'axi_master_wr_u/5', 'ddr_model_if_u/5');
 
