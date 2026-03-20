@@ -104,7 +104,7 @@ function info = build_stage2_wrapper_tb_model(rootDir, options)
     end
 
     if persistModel
-        save_system(tbName, tbPath, 'OverwriteIfChangedOnDisk', true);
+        save_system(tbName, tbPath, 'OverwriteIfChangedOnDisk', true, 'SaveDirtyReferencedModels', 'on');
     end
 
     info = struct();
