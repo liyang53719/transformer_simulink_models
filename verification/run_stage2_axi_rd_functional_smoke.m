@@ -21,8 +21,7 @@ function result = run_stage2_axi_rd_functional_smoke(rootDir, options)
     set_param(mdlName, 'SimulationCommand', 'update');
 
     axiPath = [mdlName '/axi_master_rd_u'];
-    requiredBlocks = {'start_or_hold', 'addr_hs_logic', 'avalid_state_z', ...
-        'burst_active_z', 'burst_count_z', 'burst_done_logic', 'rd_valid_gate'};
+    requiredBlocks = {'axi_rd_core'};
     missingBlocks = {};
     for i = 1:numel(requiredBlocks)
         if isempty(find_system(axiPath, 'SearchDepth', 1, 'Name', requiredBlocks{i}))

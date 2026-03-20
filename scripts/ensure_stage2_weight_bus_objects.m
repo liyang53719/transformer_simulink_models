@@ -6,10 +6,19 @@ function ensure_stage2_weight_bus_objects()
     define_bus('WeightReqAttnBus', {'attn_q_addr','attn_q_valid','attn_k_addr','attn_k_valid','attn_v_addr','attn_v_valid'});
     define_bus('WeightReqFfnBus', {'ffn_up_addr','ffn_up_valid','ffn_gate_addr','ffn_gate_valid','ffn_down_addr','ffn_down_valid'});
 
-    define_bus('WeightAddrRmsBus', {'gamma_addr'});
-    define_bus('WeightAddrQkvBus', {'q_addr','k_addr','v_addr'});
-    define_bus('WeightAddrAttnBus', {'attn_q_addr','attn_k_addr','attn_v_addr'});
-    define_bus('WeightAddrFfnBus', {'up_addr','gate_addr','down_addr'});
+    define_bus_from_specs('WeightAddrRmsBus', {'gamma_addr', 'int32'});
+    define_bus_from_specs('WeightAddrQkvBus', {
+        'q_addr', 'int32';
+        'k_addr', 'int32';
+        'v_addr', 'int32'});
+    define_bus_from_specs('WeightAddrAttnBus', {
+        'attn_q_addr', 'int32';
+        'attn_k_addr', 'int32';
+        'attn_v_addr', 'int32'});
+    define_bus_from_specs('WeightAddrFfnBus', {
+        'up_addr', 'int32';
+        'gate_addr', 'int32';
+        'down_addr', 'int32'});
 
     define_bus('WeightReqBus', {
         'gamma_addr','gamma_valid', ...
@@ -25,10 +34,21 @@ function ensure_stage2_weight_bus_objects()
 
     define_bus('QkvStreamBus', {'q_stream','k_stream','v_stream','q_valid','kv_valid','group_idx'});
     define_bus('AttentionFlowBus', {'q_stream','k_cache','v_cache','group_idx','score_scale'});
-    define_bus('PrefillScheduleBus', {
-        'array_rows','array_cols','tile_seq','tile_k','tile_out', ...
-        'x_bank_count','psum_bank_count','kv_bank_count','q_heads_per_kv', ...
-        'active_seq_len','decode_mode','kv_phase_first','score_scale'});
+    define_bus_from_specs('PrefillScheduleBus', {
+        'array_rows', 'int32';
+        'array_cols', 'int32';
+        'tile_seq', 'int32';
+        'tile_k', 'int32';
+        'tile_out', 'int32';
+        'x_bank_count', 'int32';
+        'psum_bank_count', 'int32';
+        'kv_bank_count', 'int32';
+        'q_heads_per_kv', 'int32';
+        'active_seq_len', 'int32';
+        'kv_phase_first', 'int32';
+        'score_scale', 'int32';
+        'online_softmax_en', 'int32';
+        'scorev_enable', 'int32'});
 end
 
 function define_bus(name, fieldNames)
@@ -36,6 +56,18 @@ function define_bus(name, fieldNames)
     for i = 1:numel(fieldNames)
         elems(i).Name = fieldNames{i};
         elems(i).DataType = 'single';
+        elems(i).Dimensions = 1;
+    end
+    busObj = Simulink.Bus;
+    busObj.Elements = elems;
+    assignin('base', name, busObj);
+end
+
+function define_bus_from_specs(name, specs)
+    elems = repmat(Simulink.BusElement, size(specs, 1), 1);
+    for i = 1:size(specs, 1)
+        elems(i).Name = specs{i, 1};
+        elems(i).DataType = specs{i, 2};
         elems(i).Dimensions = 1;
     end
     busObj = Simulink.Bus;

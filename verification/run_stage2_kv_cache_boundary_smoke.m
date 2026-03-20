@@ -16,8 +16,7 @@ function result = run_stage2_kv_cache_boundary_smoke(rootDir, options)
     set_param(mdlName, 'SimulationCommand', 'update');
 
     kvPath = [mdlName '/kv_cache_if_u'];
-    requiredInports = {'qkv_new','kv_hist','mode_decode','kv_phase_first','score_scale', ...
-        'x_bank_count','kv_bank_count','tile_seq','active_seq_len','tile_k','tile_out'};
+    requiredInports = {'qkv_new','kv_hist','mode_decode','sched_bus'};
     requiredOutports = {'kv_to_attn','kv_write_data','kv_write_valid','kv_bank_addr','kv_bank_sel','kv_bank_wr_en'};
 
     missingKvInports = missing_named_ports(kvPath, 'Inport', requiredInports);
@@ -28,13 +27,6 @@ function result = run_stage2_kv_cache_boundary_smoke(rootDir, options)
         'axi_master_rd_u/1', 'kv_cache_if_u/2';
         'mode_decode/1', 'kv_cache_if_u/3';
         'prefill_sched_u/1', 'kv_cache_if_u/4';
-        'prefill_sched_u/2', 'kv_cache_if_u/5';
-        'prefill_sched_u/6', 'kv_cache_if_u/6';
-        'prefill_sched_u/8', 'kv_cache_if_u/7';
-        'prefill_sched_u/9', 'kv_cache_if_u/8';
-        'prefill_sched_u/12', 'kv_cache_if_u/9';
-        'prefill_sched_u/8', 'kv_cache_if_u/10';
-        'prefill_sched_u/9', 'kv_cache_if_u/11';
         'kv_cache_if_u/1', 'attention_u/1';
         'kv_cache_if_u/2', 'axi_master_wr_u/1';
         'kv_cache_if_u/3', 'axi_master_wr_u/2';
