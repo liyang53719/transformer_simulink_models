@@ -45,10 +45,13 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     simOut = sim(tbName, 'StopTime', num2str(numericBaseline.stop_time), 'SaveOutput', 'on', ...
         'OutputSaveName', 'yout', 'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on');
     yout = simOut.get('yout');
-    outValidRaw = double(extract_signal(yout, 'out_valid'));
+    outValidSig = extract_dataset_signal(yout, 'out_valid');
+    outValidRaw = double(outValidSig.Values.Data);
     sampleTimes = double(numericBaseline.stimulus.time(:));
-    outValid = double(resample_signal_on_times(yout, 'out_valid', sampleTimes));
-    outHidden = double(resample_signal_on_times(yout, 'out_hidden', sampleTimes));
+    outputSamplePhase = resolve_output_sample_phase(outValidSig, sampleTimes, getFieldOr(options, 'OutputSamplePhase', 'auto'));
+    outputSampleTimes = sampleTimes + outputSamplePhase;
+    outValid = double(resample_signal_on_times(yout, 'out_valid', outputSampleTimes));
+    outHidden = double(resample_signal_on_times(yout, 'out_hidden', outputSampleTimes));
     dutValidIndices = find(outValid(:) > 0.5);
     dutValidHidden = outHidden(dutValidIndices);
     rawValidIndices = find(outValidRaw(:) > 0.5);
@@ -59,6 +62,8 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     result.reference_prefill_out_hidden_mean = double(refBaseline.reference_prefill_out_hidden_mean(:));
     result.reference_scalar_contract_out_hidden = double(refBaseline.reference_scalar_contract_out_hidden(:));
     result.sample_times = sampleTimes;
+    result.output_sample_phase = double(outputSamplePhase);
+    result.output_sample_times = double(outputSampleTimes(:));
     result.raw_valid_indices = double(rawValidIndices(:));
     result.raw_valid_count = numel(rawValidIndices);
     result.dut_valid_indices = double(dutValidIndices(:));
@@ -87,6 +92,7 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
 
     fprintf('Stage2 first-block prefill reference audit PASS\n');
     fprintf('  params_source=%s\n', char(result.params_source));
+    fprintf('  output_sample_phase=%.6g\n', result.output_sample_phase);
     fprintf('  dut_valid_count=%d raw_valid_count=%d reference_token_count=%d sample_count_match=%d\n', ...
         result.dut_valid_count, result.raw_valid_count, result.reference_token_count, result.sample_count_matches_reference);
     fprintf('  dut_valid_out_hidden=%s\n', mat2str(result.dut_valid_out_hidden', 6));
@@ -228,6 +234,44 @@ function values = resample_signal_on_times(yout, name, sampleTimes)
     sig = extract_dataset_signal(yout, name);
     sampled = resample(sig.Values, double(sampleTimes(:)));
     values = sampled.Data;
+end
+
+function phase = resolve_output_sample_phase(outValidSig, baseSampleTimes, phaseOption)
+    if isnumeric(phaseOption)
+        phase = double(phaseOption);
+        return;
+    end
+
+    phaseMode = lower(string(phaseOption));
+    if phaseMode ~= "auto"
+        error('run_stage2_first_block_prefill_reference_audit:BadOutputSamplePhase', ...
+            'OutputSamplePhase must be numeric or "auto", got %s', char(phaseMode));
+    end
+
+    solverStep = infer_signal_step(outValidSig.Values.Time);
+    candidatePhases = (0:solverStep:(1 - solverStep / 2))';
+    bestPhase = 0;
+    bestCount = -1;
+    for i = 1:numel(candidatePhases)
+        sampled = resample(outValidSig.Values, double(baseSampleTimes(:)) + candidatePhases(i));
+        count = sum(double(sampled.Data(:)) > 0.5);
+        if count > bestCount
+            bestCount = count;
+            bestPhase = candidatePhases(i);
+        end
+    end
+    phase = double(bestPhase);
+end
+
+function step = infer_signal_step(times)
+    times = double(times(:));
+    diffs = diff(times);
+    diffs = diffs(diffs > 1e-9);
+    if isempty(diffs)
+        step = 0.2;
+        return;
+    end
+    step = min(diffs);
 end
 
 function sig = extract_dataset_signal(yout, name)

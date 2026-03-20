@@ -1646,7 +1646,7 @@ function configure_attention(subPath)
 
     [qOut, qReqAddr, qReqValid, qDataValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
-    [kOut, kReqAddr, kReqValid, ~] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
+    [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95);
     [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 175);
@@ -1655,8 +1655,8 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
     safe_add_line(subPath, kOut, 'score_mul/2');
     safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
-    safe_add_line(subPath, 'x_valid_z/1', 'qk_pair_valid/1');
-    safe_add_line(subPath, qDataValid, 'qk_pair_valid/2');
+    safe_add_line(subPath, qDataValid, 'qk_pair_valid/1');
+    safe_add_line(subPath, kDataValid, 'qk_pair_valid/2');
     safe_add_line(subPath, 'qk_pair_valid/1', 'qk_pair_valid_z/1');
     safe_add_line(subPath, 'score_mul/1', 'score_stage_gate/1');
     safe_add_line(subPath, 'qk_pair_valid_z/1', 'score_stage_gate/2');
@@ -1792,8 +1792,8 @@ function configure_ffn_swiglu(subPath)
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 580, 145);
 
     safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
-    safe_add_line(subPath, 'x_valid_z/1', 'gateup_pair_valid/1');
-    safe_add_line(subPath, upDataValid, 'gateup_pair_valid/2');
+    safe_add_line(subPath, upDataValid, 'gateup_pair_valid/1');
+    safe_add_line(subPath, gateDataValid, 'gateup_pair_valid/2');
     safe_add_line(subPath, 'gateup_pair_valid/1', 'gateup_pair_valid_z/1');
     safe_add_line(subPath, 'gateup_pair_valid_z/1', 'gateup_pair_valid_gate_z1/1');
     safe_add_line(subPath, 'gateup_pair_valid_gate_z1/1', 'gateup_pair_valid_gate_z2/1');
@@ -1935,6 +1935,8 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     safe_add_line(subPath, [ddrDataCast '/1'], [sramSel '/3']);
 
     safe_add_line(subPath, [ddrValidCast '/1'], [sramValid '/1']);
+    safe_add_line(subPath, [ddrValidCast '/1'], [validOr '/1']);
+    safe_add_line(subPath, [sramValid '/1'], [validOr '/2']);
 
     safe_add_line(subPath, inSig, [mulBlk '/1']);
     safe_add_line(subPath, [sramSel '/1'], [mulBlk '/2']);
@@ -1942,7 +1944,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     mulOut = [mulBlk '/1'];
     reqAddrOutSig = [reqAddrDelay '/1'];
     reqValidOutSig = [reqValidCast '/1'];
-    dataValidOutSig = [ddrValidCast '/1'];
+    dataValidOutSig = [validOr '/1'];
 end
 
 function code = cache_addr_alias_code()
