@@ -75,6 +75,8 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
         stageResult.tail_values = tokenValues(max(1, numel(tokenValues) - 7):numel(tokenValues));
         if strcmp(spec.name, 'residual_out')
             [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_prefix(tokenValues, result.reference_out_hidden);
+            stageResult.placeholder_common_count = 0;
+            stageResult.placeholder_max_abs_diff = compare_residual_placeholder(stageResult, result.stages, baseline.stimulus);
         else
             [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace);
         end
@@ -84,9 +86,10 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
     fprintf('Stage2 first-block prefill stage trace audit PASS\n');
     for i = 1:numel(result.stages)
         stageResult = result.stages(i);
-        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g ref_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...
+        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g ref_diff=%s placeholder_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...
             stageResult.name, stageResult.phase, stageResult.valid_count, stageResult.max_abs_value, ...
-            printable_scalar(stageResult.reference_max_abs_diff), printable_scalar(stageResult.first_exploded_token_index), ...
+            printable_scalar(stageResult.reference_max_abs_diff), printable_scalar(stageResult.placeholder_max_abs_diff), ...
+            printable_scalar(stageResult.first_exploded_token_index), ...
             mat2str(stageResult.head_values', 6), mat2str(stageResult.tail_values', 6));
     end
 end
@@ -123,7 +126,36 @@ function stageResult = empty_stage_result()
         'head_values', [], ...
         'tail_values', [], ...
         'reference_common_count', 0, ...
-        'reference_max_abs_diff', NaN);
+        'reference_max_abs_diff', NaN, ...
+        'placeholder_common_count', 0, ...
+        'placeholder_max_abs_diff', NaN);
+end
+
+function maxAbsDiff = compare_residual_placeholder(stageResult, stageResults, stimulus)
+    ffnIndex = find(strcmp({stageResults.name}, 'ffn_out'), 1, 'last');
+    if isempty(ffnIndex)
+        maxAbsDiff = NaN;
+        return;
+    end
+
+    ffnStage = stageResults(ffnIndex);
+    commonCount = min([numel(stageResult.values), numel(ffnStage.values), numel(stageResult.valid_indices)]);
+    if commonCount == 0
+        maxAbsDiff = NaN;
+        return;
+    end
+
+    residualSeries = double(stimulus.in_residual(:));
+    sampleIndices = stageResult.valid_indices(1:commonCount);
+    sampleIndices = sampleIndices(sampleIndices >= 1 & sampleIndices <= numel(residualSeries));
+    commonCount = min(commonCount, numel(sampleIndices));
+    if commonCount == 0
+        maxAbsDiff = NaN;
+        return;
+    end
+
+    expected = double(ffnStage.values(1:commonCount)) + residualSeries(sampleIndices(:));
+    maxAbsDiff = max(abs(double(stageResult.values(1:commonCount)) - expected(:)));
 end
 
 function [commonCount, maxAbsDiff] = compare_reference_stage(stageName, actual, referenceStageTrace)
