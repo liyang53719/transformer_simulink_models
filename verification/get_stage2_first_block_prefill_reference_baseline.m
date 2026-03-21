@@ -60,14 +60,20 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     baseline.reference_placeholder_contract_out_hidden = placeholderContractOutputs(:);
     baseline.reference_kv_present = isstruct(outKV) && isfield(outKV, 'keys') && ~isempty(outKV.keys);
     if enableStageTrace
-        baseline.reference_stage_contract_trace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg);
+        [baseline.reference_stage_contract_trace_real, ...
+            baseline.reference_stage_contract_trace_placeholder, ...
+            baseline.reference_stage_contract_trace] = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg);
     else
+        baseline.reference_stage_contract_trace_real = struct();
+        baseline.reference_stage_contract_trace_placeholder = struct();
         baseline.reference_stage_contract_trace = struct();
     end
 end
 
-function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg)
-    stageTrace = struct();
+function [realStageTrace, placeholderStageTrace, mergedStageTrace] = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg)
+    realStageTrace = struct();
+    placeholderStageTrace = struct();
+    mergedStageTrace = struct();
     tokenCount = numel(tokenHidden);
     hiddenSize = double(ctx.Parameters.Hyperparameters.HiddenSize);
     for tokenIndex = 1:tokenCount
@@ -83,16 +89,22 @@ function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden
         [outHiddenMatrix, ~, debugInfo] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, kvReadData, traceCtx);
         tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
         placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
-        tokenTrace = merge_stage_trace(tokenTrace, placeholderTrace);
         tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
-        names = fieldnames(tokenTrace);
-        for i = 1:numel(names)
-            name = names{i};
-            if ~isfield(stageTrace, name)
-                stageTrace.(name) = zeros(tokenCount, 1, 'single');
-            end
-            stageTrace.(name)(tokenIndex) = single(tokenTrace.(name));
+        mergedTrace = merge_stage_trace(tokenTrace, placeholderTrace);
+        realStageTrace = assign_stage_trace_token(realStageTrace, tokenTrace, tokenIndex, tokenCount);
+        placeholderStageTrace = assign_stage_trace_token(placeholderStageTrace, placeholderTrace, tokenIndex, tokenCount);
+        mergedStageTrace = assign_stage_trace_token(mergedStageTrace, mergedTrace, tokenIndex, tokenCount);
+    end
+end
+
+function stageTrace = assign_stage_trace_token(stageTrace, tokenTrace, tokenIndex, tokenCount)
+    names = fieldnames(tokenTrace);
+    for i = 1:numel(names)
+        name = names{i};
+        if ~isfield(stageTrace, name)
+            stageTrace.(name) = zeros(tokenCount, 1, 'single');
         end
+        stageTrace.(name)(tokenIndex) = single(tokenTrace.(name));
     end
 end
 
