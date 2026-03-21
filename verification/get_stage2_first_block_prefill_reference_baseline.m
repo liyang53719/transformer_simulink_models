@@ -33,14 +33,17 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     inHiddenMatrix = repmat(reshape(tokenHidden, 1, []), hiddenSize, 1);
     inResidualMatrix = repmat(reshape(tokenResidual, 1, []), hiddenSize, 1);
     ctx = struct('Parameters', params, 'LayerIndex', layerIndex, ...
+        'WeightRspConfig', weightRspCfg, ...
         'TokenPos', double(getScalarOr(stimulus, 'cfg_token_pos', tokenSampleIndices(1), 1)));
     [outHiddenMatrix, outKV] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, single([]), ctx);
 
     contractOutputs = zeros(tokenCount, 1, 'single');
+    placeholderContractOutputs = zeros(tokenCount, 1, 'single');
     for tokenIndex = 1:tokenCount
         contract = build_prefill_contract(stimulus, tokenHidden(tokenIndex), tokenResidual(tokenIndex), tokenIndex, tokenSampleIndices(tokenIndex));
         [summary, ~] = qwen2_block_ref_stage2_contract_adapter(contract, ctx);
         contractOutputs(tokenIndex) = single(summary.out_hidden);
+        placeholderContractOutputs(tokenIndex) = single(getFieldOr(summary, 'out_hidden_placeholder', NaN));
     end
 
     baseline = struct();
@@ -54,6 +57,7 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     baseline.reference_prefill_out_hidden_mean = single(mean(single(outHiddenMatrix), 1))';
     baseline.reference_prefill_out_hidden_abs_mean = single(mean(abs(single(outHiddenMatrix)), 1))';
     baseline.reference_scalar_contract_out_hidden = contractOutputs(:);
+    baseline.reference_placeholder_contract_out_hidden = placeholderContractOutputs(:);
     baseline.reference_kv_present = isstruct(outKV) && isfield(outKV, 'keys') && ~isempty(outKV.keys);
     if enableStageTrace
         baseline.reference_stage_contract_trace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg);

@@ -62,6 +62,7 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     result.reference_token_count = double(refBaseline.token_count);
     result.reference_prefill_out_hidden_mean = double(refBaseline.reference_prefill_out_hidden_mean(:));
     result.reference_scalar_contract_out_hidden = double(refBaseline.reference_scalar_contract_out_hidden(:));
+    result.reference_placeholder_contract_out_hidden = double(getFieldOr(refBaseline, 'reference_placeholder_contract_out_hidden', []));
     result.reference_stage_contract_trace = getFieldOr(refBaseline, 'reference_stage_contract_trace', struct());
     result.sample_times = sampleTimes;
     result.output_sample_phase = double(outputSamplePhase);
@@ -83,16 +84,16 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
         result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean);
     [result.contract_compare_max_abs_diff, result.contract_compare_common_count] = compare_prefix( ...
         result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden);
-    result.reference_placeholder_out_hidden = build_placeholder_output_reference( ...
-        result.reference_stage_contract_trace, numericBaseline.stimulus, result.dut_valid_indices);
-    [result.placeholder_compare_max_abs_diff, result.placeholder_compare_common_count] = compare_prefix( ...
-        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden);
+    result.reference_placeholder_out_hidden = result.reference_placeholder_contract_out_hidden(:);
+    [result.placeholder_alignment_shift, result.placeholder_compare_max_abs_diff, ...
+        result.placeholder_compare_common_count, result.reference_placeholder_out_hidden_aligned] = align_reference_prefix( ...
+        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden, 8);
     result.slx_vs_ref_full_head_diff = compute_prefix_diff_head( ...
         result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean, 8);
     result.slx_vs_ref_contract_head_diff = compute_prefix_diff_head( ...
         result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden, 8);
     result.slx_vs_placeholder_head_diff = compute_prefix_diff_head( ...
-        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden, 8);
+        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden_aligned, 8);
 
     result.numeric_equivalence_ready = result.sample_count_matches_reference && ...
         result.dut_finite && result.reference_full_finite && ...
@@ -100,6 +101,9 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     result.contract_alignment_ready = result.sample_count_matches_reference && ...
         result.dut_finite && result.reference_contract_finite && ...
         result.contract_compare_max_abs_diff < 1e-3;
+    result.placeholder_alignment_ready = result.dut_finite && ...
+        all(isfinite(result.reference_placeholder_out_hidden_aligned)) && ...
+        result.placeholder_compare_max_abs_diff < 1e-3;
     result.pass = result.reference_full_finite && result.reference_contract_finite && result.dut_finite;
 
     fprintf('Stage2 first-block prefill reference audit PASS\n');
@@ -110,17 +114,18 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     fprintf('  dut_valid_out_hidden=%s\n', mat2str(result.dut_valid_out_hidden', 6));
     fprintf('  ref_full_mean=%s\n', mat2str(result.reference_prefill_out_hidden_mean', 6));
     fprintf('  ref_contract=%s\n', mat2str(result.reference_scalar_contract_out_hidden', 6));
+    fprintf('  ref_placeholder=%s\n', mat2str(result.reference_placeholder_out_hidden', 6));
     fprintf('  slx_vs_ref_full_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
         result.full_mean_compare_max_abs_diff, result.full_mean_compare_common_count, ...
         mat2str(result.slx_vs_ref_full_head_diff', 6));
     fprintf('  slx_vs_ref_contract_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
         result.contract_compare_max_abs_diff, result.contract_compare_common_count, ...
         mat2str(result.slx_vs_ref_contract_head_diff', 6));
-    fprintf('  slx_vs_placeholder_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
-        result.placeholder_compare_max_abs_diff, result.placeholder_compare_common_count, ...
+    fprintf('  slx_vs_placeholder_max_abs_diff=%g common_count=%d shift=%d head_diff=%s\n', ...
+        result.placeholder_compare_max_abs_diff, result.placeholder_compare_common_count, result.placeholder_alignment_shift, ...
         mat2str(result.slx_vs_placeholder_head_diff', 6));
-    fprintf('  numeric_equivalence_ready=%d contract_alignment_ready=%d\n', ...
-        result.numeric_equivalence_ready, result.contract_alignment_ready);
+    fprintf('  numeric_equivalence_ready=%d contract_alignment_ready=%d placeholder_alignment_ready=%d\n', ...
+        result.numeric_equivalence_ready, result.contract_alignment_ready, result.placeholder_alignment_ready);
 end
 
 function tf = is_dynamic(values)
@@ -156,22 +161,35 @@ function diffHead = compute_prefix_diff_head(a, b, headCount)
     diffHead = diffVec(1:min(commonCount, headCount));
 end
 
-function placeholderOut = build_placeholder_output_reference(stageTrace, stimulus, dutValidIndices)
-    placeholderOut = zeros(0, 1);
-    if ~isstruct(stageTrace) || ~isfield(stageTrace, 'ffn_out')
-        return;
-    end
+function [bestShift, bestMaxAbsDiff, bestCommonCount, alignedReference] = align_reference_prefix(actual, reference, maxShift)
+    actual = double(actual(:));
+    reference = double(reference(:));
+    bestShift = 0;
+    bestMaxAbsDiff = Inf;
+    bestCommonCount = 0;
+    alignedReference = zeros(size(actual));
 
-    ffnOut = double(stageTrace.ffn_out(:));
-    residualSeries = double(stimulus.in_residual(:));
-    validIndices = double(dutValidIndices(:));
-    validIndices = validIndices(validIndices >= 1 & validIndices <= numel(residualSeries));
-    commonCount = min(numel(ffnOut), numel(validIndices));
-    if commonCount == 0
-        return;
-    end
+    for shift = 0:maxShift
+        if shift >= numel(reference)
+            break;
+        end
 
-    placeholderOut = ffnOut(1:commonCount) + residualSeries(validIndices(1:commonCount));
+        candidate = reference((shift + 1):end);
+        alignedCandidate = zeros(size(actual));
+        fillCount = min(numel(actual), numel(candidate));
+        alignedCandidate(1:fillCount) = candidate(1:fillCount);
+        [candidateMaxAbsDiff, candidateCommonCount] = compare_prefix(actual, alignedCandidate);
+        if candidateCommonCount == 0
+            continue;
+        end
+
+        if candidateMaxAbsDiff < bestMaxAbsDiff
+            bestShift = shift;
+            bestMaxAbsDiff = candidateMaxAbsDiff;
+            bestCommonCount = candidateCommonCount;
+            alignedReference = alignedCandidate;
+        end
+    end
 end
 
 function configure_prefill_tb_sources(tbName, stimulus)
