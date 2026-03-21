@@ -28,6 +28,7 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
         'ParamsSource', paramsSource, ...
         'LayerIndex', getFieldOr(options, 'LayerIndex', 1), ...
         'BaselineOptions', baselineOptions, ...
+        'EnableStageTrace', true, ...
         'Stimulus', numericBaseline.stimulus));
     weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
 
@@ -61,6 +62,7 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     result.reference_token_count = double(refBaseline.token_count);
     result.reference_prefill_out_hidden_mean = double(refBaseline.reference_prefill_out_hidden_mean(:));
     result.reference_scalar_contract_out_hidden = double(refBaseline.reference_scalar_contract_out_hidden(:));
+    result.reference_stage_contract_trace = getFieldOr(refBaseline, 'reference_stage_contract_trace', struct());
     result.sample_times = sampleTimes;
     result.output_sample_phase = double(outputSamplePhase);
     result.output_sample_times = double(outputSampleTimes(:));
@@ -81,10 +83,16 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
         result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean);
     [result.contract_compare_max_abs_diff, result.contract_compare_common_count] = compare_prefix( ...
         result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden);
+    result.reference_placeholder_out_hidden = build_placeholder_output_reference( ...
+        result.reference_stage_contract_trace, numericBaseline.stimulus, result.dut_valid_indices);
+    [result.placeholder_compare_max_abs_diff, result.placeholder_compare_common_count] = compare_prefix( ...
+        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden);
     result.slx_vs_ref_full_head_diff = compute_prefix_diff_head( ...
         result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean, 8);
     result.slx_vs_ref_contract_head_diff = compute_prefix_diff_head( ...
         result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden, 8);
+    result.slx_vs_placeholder_head_diff = compute_prefix_diff_head( ...
+        result.dut_valid_out_hidden, result.reference_placeholder_out_hidden, 8);
 
     result.numeric_equivalence_ready = result.sample_count_matches_reference && ...
         result.dut_finite && result.reference_full_finite && ...
@@ -108,6 +116,9 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     fprintf('  slx_vs_ref_contract_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
         result.contract_compare_max_abs_diff, result.contract_compare_common_count, ...
         mat2str(result.slx_vs_ref_contract_head_diff', 6));
+    fprintf('  slx_vs_placeholder_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
+        result.placeholder_compare_max_abs_diff, result.placeholder_compare_common_count, ...
+        mat2str(result.slx_vs_placeholder_head_diff', 6));
     fprintf('  numeric_equivalence_ready=%d contract_alignment_ready=%d\n', ...
         result.numeric_equivalence_ready, result.contract_alignment_ready);
 end
@@ -143,6 +154,24 @@ function diffHead = compute_prefix_diff_head(a, b, headCount)
 
     diffVec = a(1:commonCount) - b(1:commonCount);
     diffHead = diffVec(1:min(commonCount, headCount));
+end
+
+function placeholderOut = build_placeholder_output_reference(stageTrace, stimulus, dutValidIndices)
+    placeholderOut = zeros(0, 1);
+    if ~isstruct(stageTrace) || ~isfield(stageTrace, 'ffn_out')
+        return;
+    end
+
+    ffnOut = double(stageTrace.ffn_out(:));
+    residualSeries = double(stimulus.in_residual(:));
+    validIndices = double(dutValidIndices(:));
+    validIndices = validIndices(validIndices >= 1 & validIndices <= numel(residualSeries));
+    commonCount = min(numel(ffnOut), numel(validIndices));
+    if commonCount == 0
+        return;
+    end
+
+    placeholderOut = ffnOut(1:commonCount) + residualSeries(validIndices(1:commonCount));
 end
 
 function configure_prefill_tb_sources(tbName, stimulus)
