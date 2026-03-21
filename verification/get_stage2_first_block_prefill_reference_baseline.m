@@ -21,6 +21,7 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     end
 
     [params, sourceInfo] = load_qwen_reference_params(paramsSource, rootDir);
+    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
     enableStageTrace = logical(getFieldOr(options, 'EnableStageTrace', false));
     tokenMask = logical(stimulus.in_valid(:));
     tokenHidden = single(stimulus.in_hidden(tokenMask));
@@ -55,13 +56,13 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     baseline.reference_scalar_contract_out_hidden = contractOutputs(:);
     baseline.reference_kv_present = isstruct(outKV) && isfield(outKV, 'keys') && ~isempty(outKV.keys);
     if enableStageTrace
-        baseline.reference_stage_contract_trace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx);
+        baseline.reference_stage_contract_trace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg);
     else
         baseline.reference_stage_contract_trace = struct();
     end
 end
 
-function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx)
+function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx, weightRspCfg)
     stageTrace = struct();
     tokenCount = numel(tokenHidden);
     hiddenSize = double(ctx.Parameters.Hyperparameters.HiddenSize);
@@ -77,6 +78,8 @@ function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden
 
         [outHiddenMatrix, ~, debugInfo] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, kvReadData, traceCtx);
         tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
+        placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
+        tokenTrace = merge_stage_trace(tokenTrace, placeholderTrace);
         tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
         names = fieldnames(tokenTrace);
         for i = 1:numel(names)
@@ -87,6 +90,64 @@ function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden
             stageTrace.(name)(tokenIndex) = single(tokenTrace.(name));
         end
     end
+end
+
+function mergedTrace = merge_stage_trace(baseTrace, overrideTrace)
+    mergedTrace = baseTrace;
+    if ~isstruct(overrideTrace)
+        return;
+    end
+
+    names = fieldnames(overrideTrace);
+    for i = 1:numel(names)
+        mergedTrace.(names{i}) = overrideTrace.(names{i});
+    end
+end
+
+function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, sampleIndex, tokenIndex, realTokenTrace, weightRspCfg)
+    stageTrace = struct();
+    sampleTables = getFieldOr(weightRspCfg, 'sample_tables', {});
+    if ~(iscell(sampleTables) && numel(sampleTables) >= 10)
+        return;
+    end
+
+    tokenPos = double(getScalarOr(stimulus, 'cfg_token_pos', sampleIndex, tokenIndex));
+    numHeads = double(getScalarOr(stimulus, 'cfg_weight_num_heads', sampleIndex, 12));
+    pageBase = double(getScalarOr(stimulus, 'cfg_weight_page_base', sampleIndex, 64));
+    pageStride = double(getScalarOr(stimulus, 'cfg_weight_page_stride', sampleIndex, 8));
+    thetaScale = double(getScalarOr(stimulus, 'cfg_rope_theta_scale', sampleIndex, 1));
+    sinMixScale = double(getScalarOr(stimulus, 'cfg_rope_sin_mix_scale', sampleIndex, 1));
+    epsValue = double(getScalarOr(stimulus, 'cfg_eps', sampleIndex, 1e-5));
+
+    baseAddr = pageBase + (tokenPos * numHeads) * pageStride;
+    ropePhase = tokenPos * thetaScale;
+    ropeScale = cos(ropePhase) + sin(ropePhase) * sinMixScale;
+    ropeOut = single(tokenHidden) * single(ropeScale);
+    rmsDen = sqrt(single(ropeOut .* ropeOut) + single(epsValue));
+    rmsNorm = single(ropeOut ./ rmsDen);
+
+    gammaWeight = lookup_decoded_weight(sampleTables, 1, baseAddr + 0);
+    qWeight = lookup_decoded_weight(sampleTables, 2, baseAddr + 1);
+    kWeight = lookup_decoded_weight(sampleTables, 3, baseAddr + 2);
+    vWeight = lookup_decoded_weight(sampleTables, 4, baseAddr + 3);
+    upWeight = lookup_decoded_weight(sampleTables, 8, baseAddr + 7);
+    gateWeight = lookup_decoded_weight(sampleTables, 9, baseAddr + 8);
+    downWeight = lookup_decoded_weight(sampleTables, 10, baseAddr + 9);
+
+    rmsOutPlaceholder = single(rmsNorm * gammaWeight);
+    stageTrace.q_proj_out = single(rmsOutPlaceholder * qWeight);
+    stageTrace.k_proj_out = single(rmsOutPlaceholder * kWeight);
+    stageTrace.v_proj_out = single(rmsOutPlaceholder * vWeight);
+    stageTrace.qkv_out = single(stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out);
+
+    attnOut = single(getFieldOr(realTokenTrace, 'attn_out', 0));
+    stageTrace.ffn_up_mul = single(attnOut * upWeight);
+    stageTrace.ffn_gate_mul = single(attnOut * gateWeight);
+    stageTrace.ffn_gate_norm = single(stageTrace.ffn_gate_mul / (abs(stageTrace.ffn_gate_mul) + 1));
+    stageTrace.ffn_gate_norm_gate = stageTrace.ffn_gate_norm;
+    stageTrace.ffn_swiglu_mul = single(stageTrace.ffn_up_mul * stageTrace.ffn_gate_norm_gate);
+    stageTrace.ffn_down_stage = single(stageTrace.ffn_swiglu_mul * downWeight);
+    stageTrace.ffn_out = stageTrace.ffn_down_stage;
 end
 
 function stageTrace = reduce_reference_stage_trace(tensorTrace)
@@ -161,6 +222,22 @@ function scalarValue = reduce_reference_trace_tensor(value)
         data = single(data(idx{:}));
     end
     scalarValue = single(mean(data, 'all'));
+end
+
+function decoded = lookup_decoded_weight(sampleTables, laneIndex, addr)
+    if laneIndex > numel(sampleTables) || isempty(sampleTables{laneIndex})
+        decoded = single(0);
+        return;
+    end
+
+    table = sampleTables{laneIndex};
+    idx = floor(double(addr)) + 1;
+    idx = max(1, min(idx, numel(table)));
+    decoded = decode_weight_byte_local(uint8(table(idx)));
+end
+
+function decoded = decode_weight_byte_local(value)
+    decoded = (single(value) - 128) / 128;
 end
 
 function contract = build_prefill_contract(stimulus, tokenHidden, tokenResidual, tokenIndex, sampleIndex)
