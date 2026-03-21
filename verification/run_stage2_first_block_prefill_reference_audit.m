@@ -81,6 +81,10 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
         result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean);
     [result.contract_compare_max_abs_diff, result.contract_compare_common_count] = compare_prefix( ...
         result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden);
+    result.slx_vs_ref_full_head_diff = compute_prefix_diff_head( ...
+        result.dut_valid_out_hidden, result.reference_prefill_out_hidden_mean, 8);
+    result.slx_vs_ref_contract_head_diff = compute_prefix_diff_head( ...
+        result.dut_valid_out_hidden, result.reference_scalar_contract_out_hidden, 8);
 
     result.numeric_equivalence_ready = result.sample_count_matches_reference && ...
         result.dut_finite && result.reference_full_finite && ...
@@ -98,6 +102,12 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     fprintf('  dut_valid_out_hidden=%s\n', mat2str(result.dut_valid_out_hidden', 6));
     fprintf('  ref_full_mean=%s\n', mat2str(result.reference_prefill_out_hidden_mean', 6));
     fprintf('  ref_contract=%s\n', mat2str(result.reference_scalar_contract_out_hidden', 6));
+    fprintf('  slx_vs_ref_full_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
+        result.full_mean_compare_max_abs_diff, result.full_mean_compare_common_count, ...
+        mat2str(result.slx_vs_ref_full_head_diff', 6));
+    fprintf('  slx_vs_ref_contract_max_abs_diff=%g common_count=%d head_diff=%s\n', ...
+        result.contract_compare_max_abs_diff, result.contract_compare_common_count, ...
+        mat2str(result.slx_vs_ref_contract_head_diff', 6));
     fprintf('  numeric_equivalence_ready=%d contract_alignment_ready=%d\n', ...
         result.numeric_equivalence_ready, result.contract_alignment_ready);
 end
@@ -120,6 +130,19 @@ function [maxAbsDiff, commonCount] = compare_prefix(a, b)
         return;
     end
     maxAbsDiff = max(abs(a(1:commonCount) - b(1:commonCount)));
+end
+
+function diffHead = compute_prefix_diff_head(a, b, headCount)
+    a = double(a(:));
+    b = double(b(:));
+    commonCount = min(numel(a), numel(b));
+    if commonCount == 0
+        diffHead = zeros(0, 1);
+        return;
+    end
+
+    diffVec = a(1:commonCount) - b(1:commonCount);
+    diffHead = diffVec(1:min(commonCount, headCount));
 end
 
 function configure_prefill_tb_sources(tbName, stimulus)
