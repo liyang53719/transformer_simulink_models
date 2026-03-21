@@ -1857,6 +1857,10 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     sramDataCast = [prefix '_sram_data_double'];
     sramValid = [prefix '_sram_data_valid_z'];
     sramSel = [prefix '_sram_data_sel'];
+    rawWeightCast = [prefix '_raw_weight_single'];
+    weightBias = [prefix '_weight_bias'];
+    weightCentered = [prefix '_weight_centered'];
+    weightScale = [prefix '_weight_scale'];
     validOr = [prefix '_valid_or'];
     mulBlk = [prefix '_mul'];
 
@@ -1899,11 +1903,19 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
         'InitialCondition', '0', 'Position', [x0 + 180, y0 + 70, x0 + 210, y0 + 90]);
     add_block('simulink/Signal Routing/Switch', [subPath '/' sramSel], ...
         'Threshold', '0.5', 'Position', [x0 + 230, y0 + 40, x0 + 280, y0 + 90]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/' rawWeightCast], ...
+        'OutDataTypeStr', 'single', 'Position', [x0 + 290, y0 + 40, x0 + 325, y0 + 60]);
+    add_block('simulink/Sources/Constant', [subPath '/' weightBias], ...
+        'Value', '128', 'Position', [x0 + 290, y0 + 75, x0 + 325, y0 + 95]);
+    add_block('simulink/Math Operations/Add', [subPath '/' weightCentered], ...
+        'Inputs', '+-', 'Position', [x0 + 340, y0 + 42, x0 + 375, y0 + 68]);
+    add_block('simulink/Math Operations/Gain', [subPath '/' weightScale], ...
+        'Gain', '1/128', 'Position', [x0 + 390, y0 + 42, x0 + 430, y0 + 68]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/' validOr], ...
         'Operator', 'OR', 'Position', [x0 + 230, y0 + 95, x0 + 260, y0 + 125]);
 
     add_block('simulink/Math Operations/Product', [subPath '/' mulBlk], ...
-        'Inputs', '**', 'OutDataTypeStr', 'single', 'Position', [x0 + 305, y0 + 45, x0 + 340, y0 + 85]);
+        'Inputs', '**', 'OutDataTypeStr', 'single', 'Position', [x0 + 445, y0 + 45, x0 + 480, y0 + 85]);
     set_matlab_function_script([subPath '/' sramAddrAlias], cache_addr_alias_code(), ...
         'add_streamed_weight_mul:MissingSramAddrAlias');
 
@@ -1933,13 +1945,17 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     safe_add_line(subPath, [sramDataCast '/1'], [sramSel '/1']);
     safe_add_line(subPath, [sramValid '/1'], [sramSel '/2']);
     safe_add_line(subPath, [ddrDataCast '/1'], [sramSel '/3']);
+    safe_add_line(subPath, [sramSel '/1'], [rawWeightCast '/1']);
+    safe_add_line(subPath, [rawWeightCast '/1'], [weightCentered '/1']);
+    safe_add_line(subPath, [weightBias '/1'], [weightCentered '/2']);
+    safe_add_line(subPath, [weightCentered '/1'], [weightScale '/1']);
 
     safe_add_line(subPath, [ddrValidCast '/1'], [sramValid '/1']);
     safe_add_line(subPath, [ddrValidCast '/1'], [validOr '/1']);
     safe_add_line(subPath, [sramValid '/1'], [validOr '/2']);
 
     safe_add_line(subPath, inSig, [mulBlk '/1']);
-    safe_add_line(subPath, [sramSel '/1'], [mulBlk '/2']);
+    safe_add_line(subPath, [weightScale '/1'], [mulBlk '/2']);
 
     mulOut = [mulBlk '/1'];
     reqAddrOutSig = [reqAddrDelay '/1'];
