@@ -36,7 +36,12 @@ function [summary, detail] = qwen2_block_ref_stage2_contract_adapter(contract, c
 
     refCtx = ctx;
     refCtx.TokenPos = tokenPos;
-    [outHiddenMatrix, outKV] = qwen2_block_ref_real_adapter(inHidden, inResidual, kvReadData, refCtx);
+    runtimeCfg = getFieldOr(refCtx, 'RuntimeConfig', struct());
+    if ~isfield(runtimeCfg, 'TraceTensors')
+        runtimeCfg.TraceTensors = false;
+    end
+    refCtx.RuntimeConfig = runtimeCfg;
+    [outHiddenMatrix, outKV, debugInfo] = qwen2_block_ref_real_adapter(inHidden, inResidual, kvReadData, refCtx);
 
     lastColumn = single(outHiddenMatrix(:, end));
     summary = struct();
@@ -57,9 +62,102 @@ function [summary, detail] = qwen2_block_ref_stage2_contract_adapter(contract, c
     detail = struct();
     detail.out_hidden_matrix = outHiddenMatrix;
     detail.out_kv = outKV;
+    if isstruct(debugInfo)
+        detail.debug_info = debugInfo;
+    else
+        detail.debug_info = struct();
+    end
+    detail.stage_contract_trace = reduce_stage_contract_trace(getFieldOr(detail.debug_info, 'TensorTrace', struct([])));
     detail.broadcast_policy = 'scalar_to_hidden_lane_broadcast';
     detail.output_reduction = 'mean_last_output_column';
     detail.kv_policy = 'scalar_kv_value_broadcast_to_hidden_rows';
+end
+
+function stageTrace = reduce_stage_contract_trace(tensorTrace)
+    stageTrace = struct();
+    if ~isstruct(tensorTrace) || isempty(tensorTrace)
+        return;
+    end
+
+    for i = 1:numel(tensorTrace)
+        opName = string(getFieldOr(tensorTrace(i), 'Op', ''));
+        value = getFieldOr(tensorTrace(i), 'Value', []);
+        if strlength(opName) == 0 || isempty(value)
+            continue;
+        end
+
+        stageName = map_trace_op_to_stage(opName);
+        if strlength(stageName) == 0
+            continue;
+        end
+
+        stageTrace.(stageName) = reduce_trace_tensor_to_contract(value);
+    end
+
+    if isfield(stageTrace, 'q_proj_out') && isfield(stageTrace, 'k_proj_out') && isfield(stageTrace, 'v_proj_out')
+        stageTrace.qkv_out = stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out;
+    end
+    if isfield(stageTrace, 'o_proj_out')
+        stageTrace.attn_out = stageTrace.o_proj_out;
+        stageTrace.attn_scorev_reduce = stageTrace.o_proj_out;
+    end
+    if isfield(stageTrace, 'swiglu_out')
+        stageTrace.ffn_swiglu_mul = stageTrace.swiglu_out;
+    end
+    if isfield(stageTrace, 'down_proj_out')
+        stageTrace.ffn_down_stage = stageTrace.down_proj_out;
+    end
+end
+
+function stageName = map_trace_op_to_stage(opName)
+    switch char(opName)
+        case 'block.input_norm.output'
+            stageName = "rms_out";
+        case 'attn.q_proj.output'
+            stageName = "q_proj_out";
+        case 'attn.k_proj.output'
+            stageName = "k_proj_out";
+        case 'attn.v_proj.output'
+            stageName = "v_proj_out";
+        case 'attn.o_proj.output'
+            stageName = "o_proj_out";
+        case 'block.attn_residual.output'
+            stageName = "attn_residual_out";
+        case 'block.post_attn_norm.output'
+            stageName = "post_attn_norm_out";
+        case 'mlp.up_proj.output'
+            stageName = "ffn_up_mul";
+        case 'mlp.gate_proj.output'
+            stageName = "ffn_gate_mul";
+        case 'mlp.swiglu.output'
+            stageName = "swiglu_out";
+        case 'mlp.down_proj.output'
+            stageName = "down_proj_out";
+        case 'block.ffn_residual.output'
+            stageName = "residual_out";
+        otherwise
+            stageName = "";
+    end
+end
+
+function scalarValue = reduce_trace_tensor_to_contract(value)
+    data = single(value);
+    dims = size(data);
+
+    if isempty(data)
+        scalarValue = single(0);
+        return;
+    end
+
+    if numel(dims) >= 2
+        idx = repmat({':'}, 1, numel(dims));
+        idx{2} = dims(2);
+        lastColumn = single(data(idx{:}));
+    else
+        lastColumn = data;
+    end
+
+    scalarValue = single(mean(lastColumn, 'all'));
 end
 
 function [dataSummary, absMean] = summarize_kv_write(outKV)

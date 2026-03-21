@@ -135,7 +135,7 @@ function build_prefill_path(mdlName, stageProfile)
     force_add_line(mdlName, 'rope_u/1', 'rmsnorm_u/1');
     safe_add_line(mdlName, 'cfg_eps/1', 'rmsnorm_u/2');
     safe_add_line(mdlName, 'rmsnorm_u/1', 'qkv_proj_u/1');
-    safe_add_line(mdlName, 'in_valid/1', 'rmsnorm_u/6');
+    safe_add_line(mdlName, 'in_valid/1', 'rmsnorm_u/5');
 
     if stageProfile == "stage2_memory_ready"
         delete_blocks_if_exist(mdlName, { ...
@@ -149,7 +149,7 @@ function build_prefill_path(mdlName, stageProfile)
         safe_add_line(mdlName, 'cfg_weight_page_base/1', 'weight_addr_map_u/3');
         safe_add_line(mdlName, 'cfg_weight_page_stride/1', 'weight_addr_map_u/4');
 
-        force_add_line(mdlName, 'weight_addr_map_u/1', 'rmsnorm_u/5');
+        force_add_line(mdlName, 'weight_addr_map_u/1', 'rmsnorm_u/4');
         force_add_line(mdlName, 'weight_addr_map_u/2', 'qkv_proj_u/3');
         force_add_line(mdlName, 'weight_addr_map_u/3', 'attention_u/3');
         force_add_line(mdlName, 'weight_addr_map_u/4', 'ffn_swiglu_u/3');
@@ -1151,17 +1151,16 @@ function configure_weight_addr_map(subPath)
     add_block('simulink/Sources/In1', [subPath '/page_stride'], 'Position', [20, 160, 50, 174]);
     add_block('simulink/User-Defined Functions/MATLAB Function', [subPath '/addr_map_core'], ...
         'Position', [90, 45, 320, 240]);
-    add_or_reset_bus_creator(subPath, 'rms_addr_bc', 1, [430, 40, 470, 70], 'WeightAddrRmsBus');
     add_or_reset_bus_creator(subPath, 'qkv_addr_bc', 3, [430, 90, 470, 160], 'WeightAddrQkvBus');
     add_or_reset_bus_creator(subPath, 'attn_addr_bc', 3, [430, 180, 470, 250], 'WeightAddrAttnBus');
     add_or_reset_bus_creator(subPath, 'ffn_addr_bc', 3, [430, 270, 470, 340], 'WeightAddrFfnBus');
-    add_block('simulink/Sinks/Out1', [subPath '/rms_addr_bus'], 'Position', [530, 50, 560, 64], ...
-        'OutDataTypeStr', 'Bus: WeightAddrRmsBus');
-    add_block('simulink/Sinks/Out1', [subPath '/qkv_addr_bus'], 'Position', [530, 120, 560, 134], ...
+    add_block('simulink/Sinks/Out1', [subPath '/gamma_addr_out'], 'Port', '1', 'Position', [530, 50, 560, 64], ...
+        'OutDataTypeStr', 'int32');
+    add_block('simulink/Sinks/Out1', [subPath '/qkv_addr_bus'], 'Port', '2', 'Position', [530, 120, 560, 134], ...
         'OutDataTypeStr', 'Bus: WeightAddrQkvBus');
-    add_block('simulink/Sinks/Out1', [subPath '/attn_addr_bus'], 'Position', [530, 210, 560, 224], ...
+    add_block('simulink/Sinks/Out1', [subPath '/attn_addr_bus'], 'Port', '3', 'Position', [530, 210, 560, 224], ...
         'OutDataTypeStr', 'Bus: WeightAddrAttnBus');
-    add_block('simulink/Sinks/Out1', [subPath '/ffn_addr_bus'], 'Position', [530, 300, 560, 314], ...
+    add_block('simulink/Sinks/Out1', [subPath '/ffn_addr_bus'], 'Port', '4', 'Position', [530, 300, 560, 314], ...
         'OutDataTypeStr', 'Bus: WeightAddrFfnBus');
 
     addrCode = sprintf([ ...
@@ -1194,7 +1193,7 @@ function configure_weight_addr_map(subPath)
         safe_add_line(subPath, sprintf('addr_map_core/%d', i), [castName '/1']);
         set_line_name_by_src_port(subPath, castName, 1, addrNames{i});
     end
-    safe_add_line(subPath, 'gamma_addr_cast/1', 'rms_addr_bc/1');
+    safe_add_line(subPath, 'gamma_addr_cast/1', 'gamma_addr_out/1');
     safe_add_line(subPath, 'q_addr_cast/1', 'qkv_addr_bc/1');
     safe_add_line(subPath, 'k_addr_cast/1', 'qkv_addr_bc/2');
     safe_add_line(subPath, 'v_addr_cast/1', 'qkv_addr_bc/3');
@@ -1204,7 +1203,6 @@ function configure_weight_addr_map(subPath)
     safe_add_line(subPath, 'up_addr_cast/1', 'ffn_addr_bc/1');
     safe_add_line(subPath, 'gate_addr_cast/1', 'ffn_addr_bc/2');
     safe_add_line(subPath, 'down_addr_cast/1', 'ffn_addr_bc/3');
-    set_line_name_by_dst_port(subPath, 'rms_addr_bc', 1, 'gamma_addr');
     set_line_name_by_dst_port(subPath, 'qkv_addr_bc', 1, 'q_addr');
     set_line_name_by_dst_port(subPath, 'qkv_addr_bc', 2, 'k_addr');
     set_line_name_by_dst_port(subPath, 'qkv_addr_bc', 3, 'v_addr');
@@ -1214,7 +1212,6 @@ function configure_weight_addr_map(subPath)
     set_line_name_by_dst_port(subPath, 'ffn_addr_bc', 1, 'up_addr');
     set_line_name_by_dst_port(subPath, 'ffn_addr_bc', 2, 'gate_addr');
     set_line_name_by_dst_port(subPath, 'ffn_addr_bc', 3, 'down_addr');
-    safe_add_line(subPath, 'rms_addr_bc/1', 'rms_addr_bus/1');
     safe_add_line(subPath, 'qkv_addr_bc/1', 'qkv_addr_bus/1');
     safe_add_line(subPath, 'attn_addr_bc/1', 'attn_addr_bus/1');
     safe_add_line(subPath, 'ffn_addr_bc/1', 'ffn_addr_bus/1');
@@ -1369,12 +1366,11 @@ function configure_rmsnorm(subPath)
     add_block('simulink/Sources/In1', [subPath '/w_rsp_bus'], 'Position', [30, 165, 60, 179], ...
         'Port', '3', ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
-    add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 200, 60, 214], ...
+    add_block('simulink/Sources/In1', [subPath '/gamma_addr_in'], 'Position', [30, 200, 60, 214], ...
         'Port', '4', ...
-        'OutDataTypeStr', 'Bus: WeightAddrRmsBus');
+        'OutDataTypeStr', 'int32');
     add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '5', 'Position', [30, 235, 60, 249]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', 'gamma_data,gamma_valid', [90, 145, 130, 200]);
-    add_or_reset_in_bus_element(subPath, 'gamma_addr_be', 4, 'gamma_addr', [90, 205, 140, 225]);
     add_block('simulink/Math Operations/Product', [subPath '/x_square'], ...
         'Inputs', '**', 'Position', [110, 35, 145, 65]);
     add_block('simulink/Math Operations/Add', [subPath '/var_eps_sum'], ...
@@ -1389,8 +1385,8 @@ function configure_rmsnorm(subPath)
         set_param([subPath '/req_bc'], 'InputSignalNames', 'gamma_addr,gamma_valid');
     catch
     end
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [620, 75, 650, 89]);
-    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [620, 165, 650, 179], ...
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [620, 75, 650, 89]);
+    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Port', '2', 'Position', [620, 165, 650, 179], ...
         'OutDataTypeStr', 'Bus: WeightReqRmsBus');
 
     safe_add_line(subPath, 'x_in/1', 'x_square/1');
@@ -1403,7 +1399,7 @@ function configure_rmsnorm(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
 
     [gammaOut, reqAddr, reqValid] = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', 'x_valid/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'gamma_addr_be/1', 410, 55);
+        'rsp_sel/1', 'rsp_sel/2', 'gamma_addr_in/1', 410, 55);
     safe_add_line(subPath, reqAddr, 'req_bc/1');
     safe_add_line(subPath, reqValid, 'req_bc/2');
     set_line_name_by_dst_port(subPath, 'req_bc', 1, 'gamma_addr');
@@ -1415,12 +1411,14 @@ end
 function configure_qkv_proj(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 75, 60, 89]);
     add_block('simulink/Sources/In1', [subPath '/w_rsp_bus'], 'Position', [30, 15, 60, 29], ...
+        'Port', '2', ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
     add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 45, 60, 59], ...
+        'Port', '3', ...
         'OutDataTypeStr', 'Bus: WeightAddrQkvBus');
-    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Position', [30, 105, 60, 119]);
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '4', 'Position', [30, 105, 60, 119]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', ...
         'qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid', [90, 5, 130, 120]);
     add_or_reset_bus_selector(subPath, 'addr_sel', 'q_addr,k_addr,v_addr', [90, 130, 130, 190]);
@@ -1461,12 +1459,12 @@ function configure_qkv_proj(subPath)
         set_param([subPath '/req_bc'], 'InputSignalNames', 'qkv_q_addr,qkv_q_valid,qkv_k_addr,qkv_k_valid,qkv_v_addr,qkv_v_valid');
     catch
     end
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [650, 75, 680, 89]);
-    add_block('simulink/Sinks/Out1', [subPath '/qkv_bus'], 'Position', [650, 145, 680, 159], ...
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [650, 75, 680, 89]);
+    add_block('simulink/Sinks/Out1', [subPath '/qkv_bus'], 'Port', '2', 'Position', [650, 145, 680, 159], ...
         'OutDataTypeStr', 'Bus: QkvStreamBus');
-    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [650, 225, 680, 239], ...
+    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Port', '3', 'Position', [650, 225, 680, 239], ...
         'OutDataTypeStr', 'Bus: WeightReqQkvBus');
-    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Position', [650, 185, 680, 199]);
+    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Port', '4', 'Position', [650, 185, 680, 199]);
 
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
@@ -1536,14 +1534,17 @@ end
 function configure_attention(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 75, 60, 89]);
     add_block('simulink/Sources/In1', [subPath '/w_rsp_bus'], 'Position', [30, 15, 60, 29], ...
+        'Port', '2', ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
     add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 45, 60, 59], ...
+        'Port', '3', ...
         'OutDataTypeStr', 'Bus: WeightAddrAttnBus');
     add_block('simulink/Sources/In1', [subPath '/sched_bus'], 'Position', [30, 225, 60, 239], ...
+        'Port', '4', ...
         'OutDataTypeStr', 'Bus: PrefillScheduleBus');
-    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Position', [30, 105, 60, 119]);
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '5', 'Position', [30, 105, 60, 119]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', ...
         'attn_q_data,attn_q_valid,attn_k_data,attn_k_valid,attn_v_data,attn_v_valid', [90, 5, 130, 120]);
     add_or_reset_bus_selector(subPath, 'addr_sel', 'attn_q_addr,attn_k_addr,attn_v_addr', [90, 130, 130, 190]);
@@ -1626,10 +1627,10 @@ function configure_attention(subPath)
         set_param([subPath '/req_bc'], 'InputSignalNames', 'attn_q_addr,attn_q_valid,attn_k_addr,attn_k_valid,attn_v_addr,attn_v_valid');
     catch
     end
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [810, 95, 840, 109]);
-    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [650, 185, 680, 199], ...
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [810, 95, 840, 109]);
+    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Port', '2', 'Position', [650, 185, 680, 199], ...
         'OutDataTypeStr', 'Bus: WeightReqAttnBus');
-    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Position', [810, 130, 840, 144]);
+    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Port', '3', 'Position', [810, 130, 840, 144]);
 
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
@@ -1723,12 +1724,14 @@ end
 function configure_ffn_swiglu(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 75, 60, 89]);
     add_block('simulink/Sources/In1', [subPath '/w_rsp_bus'], 'Position', [30, 15, 60, 29], ...
+        'Port', '2', ...
         'OutDataTypeStr', 'Bus: WeightRspBus');
     add_block('simulink/Sources/In1', [subPath '/w_addr_bus'], 'Position', [30, 45, 60, 59], ...
+        'Port', '3', ...
         'OutDataTypeStr', 'Bus: WeightAddrFfnBus');
-    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Position', [30, 105, 60, 119]);
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '4', 'Position', [30, 105, 60, 119]);
     add_or_reset_bus_selector(subPath, 'rsp_sel', 'ffn_up_data,ffn_up_valid,ffn_gate_data,ffn_gate_valid,ffn_down_data,ffn_down_valid', [90, 5, 130, 120]);
     add_or_reset_bus_selector(subPath, 'addr_sel', 'up_addr,gate_addr,down_addr', [90, 135, 130, 195]);
     add_block('simulink/Math Operations/Abs', [subPath '/gate_abs'], ...
@@ -1776,10 +1779,10 @@ function configure_ffn_swiglu(subPath)
         set_param([subPath '/req_bc'], 'InputSignalNames', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid,ffn_down_addr,ffn_down_valid');
     catch
     end
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [650, 90, 680, 104]);
-    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Position', [650, 175, 680, 189], ...
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [650, 90, 680, 104]);
+    add_block('simulink/Sinks/Out1', [subPath '/w_req_bus'], 'Port', '2', 'Position', [650, 175, 680, 189], ...
         'OutDataTypeStr', 'Bus: WeightReqFfnBus');
-    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Position', [650, 130, 680, 144]);
+    add_block('simulink/Sinks/Out1', [subPath '/valid_out'], 'Port', '3', 'Position', [650, 130, 680, 144]);
 
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
@@ -1984,17 +1987,17 @@ end
 function configure_residual(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_main'], 'Position', [30, 55, 60, 69]);
-    add_block('simulink/Sources/In1', [subPath '/x_skip'], 'Position', [30, 110, 60, 124]);
-    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Position', [30, 165, 60, 179]);
+    add_block('simulink/Sources/In1', [subPath '/x_main'], 'Port', '1', 'Position', [30, 55, 60, 69]);
+    add_block('simulink/Sources/In1', [subPath '/x_skip'], 'Port', '2', 'Position', [30, 110, 60, 124]);
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '3', 'Position', [30, 165, 60, 179]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/main_delay'], ...
         'InitialCondition', '0', 'Position', [110, 55, 150, 75]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/valid_delay'], ...
         'InitialCondition', '0', 'Position', [110, 165, 150, 185]);
     add_block('simulink/Math Operations/Sum', [subPath '/res_sum'], ...
         'Inputs', '++', 'Position', [210, 70, 240, 110]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Position', [290, 85, 320, 99]);
-    add_block('simulink/Sinks/Out1', [subPath '/y_valid'], 'Position', [290, 165, 320, 179]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [290, 85, 320, 99]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_valid'], 'Port', '2', 'Position', [290, 165, 320, 179]);
 
     safe_add_line(subPath, 'x_main/1', 'main_delay/1');
     safe_add_line(subPath, 'main_delay/1', 'res_sum/1');
@@ -2007,10 +2010,10 @@ end
 function configure_rope(subPath)
     clear_subsystem_contents(subPath);
 
-    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Position', [30, 75, 60, 89]);
-    add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Position', [30, 130, 60, 144]);
-    add_block('simulink/Sources/In1', [subPath '/theta_scale'], 'Position', [30, 170, 60, 184]);
-    add_block('simulink/Sources/In1', [subPath '/sin_mix_scale'], 'Position', [30, 205, 60, 219]);
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 75, 60, 89]);
+    add_block('simulink/Sources/In1', [subPath '/token_pos'], 'Port', '2', 'Position', [30, 130, 60, 144]);
+    add_block('simulink/Sources/In1', [subPath '/theta_scale'], 'Port', '3', 'Position', [30, 170, 60, 184]);
+    add_block('simulink/Sources/In1', [subPath '/sin_mix_scale'], 'Port', '4', 'Position', [30, 205, 60, 219]);
     add_block('simulink/Math Operations/Product', [subPath '/phase_mul'], ...
         'Inputs', '**', 'Position', [110, 135, 145, 165]);
     add_block('hdlsllib/Lookup Tables/Cosine HDL Optimized', [subPath '/cos_phase'], ...

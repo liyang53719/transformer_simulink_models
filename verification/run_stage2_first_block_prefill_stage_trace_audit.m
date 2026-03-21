@@ -40,10 +40,12 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
     sampleTimes = double(baseline.stimulus.time(:));
     reference = get_stage2_first_block_prefill_reference_baseline(rootDir, struct( ...
         'BaselineOptions', baselineOptions, ...
+        'EnableStageTrace', true, ...
         'Stimulus', baseline.stimulus));
 
     result = struct();
     result.reference_out_hidden = double(reference.reference_scalar_contract_out_hidden(:));
+    result.reference_stage_contract_trace = getFieldOr(reference, 'reference_stage_contract_trace', struct());
     result.stages = repmat(empty_stage_result(), 1, numel(signalSpecs));
 
     for i = 1:numel(signalSpecs)
@@ -74,8 +76,7 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
         if strcmp(spec.name, 'residual_out')
             [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_prefix(tokenValues, result.reference_out_hidden);
         else
-            stageResult.reference_common_count = 0;
-            stageResult.reference_max_abs_diff = NaN;
+            [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace);
         end
         result.stages(i) = stageResult;
     end
@@ -83,9 +84,10 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
     fprintf('Stage2 first-block prefill stage trace audit PASS\n');
     for i = 1:numel(result.stages)
         stageResult = result.stages(i);
-        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g first_exploded_token=%s head=%s tail=%s\n', ...
+        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g ref_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...
             stageResult.name, stageResult.phase, stageResult.valid_count, stageResult.max_abs_value, ...
-            printable_scalar(stageResult.first_exploded_token_index), mat2str(stageResult.head_values', 6), mat2str(stageResult.tail_values', 6));
+            printable_scalar(stageResult.reference_max_abs_diff), printable_scalar(stageResult.first_exploded_token_index), ...
+            mat2str(stageResult.head_values', 6), mat2str(stageResult.tail_values', 6));
     end
 end
 
@@ -122,6 +124,15 @@ function stageResult = empty_stage_result()
         'tail_values', [], ...
         'reference_common_count', 0, ...
         'reference_max_abs_diff', NaN);
+end
+
+function [commonCount, maxAbsDiff] = compare_reference_stage(stageName, actual, referenceStageTrace)
+    if ~isstruct(referenceStageTrace) || ~isfield(referenceStageTrace, stageName)
+        commonCount = 0;
+        maxAbsDiff = NaN;
+        return;
+    end
+    [commonCount, maxAbsDiff] = compare_prefix(actual, referenceStageTrace.(stageName));
 end
 
 function enable_signal_logging(tbName, mdlName, signalSpecs)

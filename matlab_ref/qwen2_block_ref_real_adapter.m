@@ -1,4 +1,4 @@
-function [outHidden, outKV] = qwen2_block_ref_real_adapter(inHidden, inResidual, kvReadData, ctx)
+function [outHidden, outKV, debugInfo] = qwen2_block_ref_real_adapter(inHidden, inResidual, kvReadData, ctx)
 %QWEN2_BLOCK_REF_REAL_ADAPTER Adapter to existing +qwen2 / +qwen2_quant block API.
 % This adapter intentionally keeps IO compatible with scaffold regression.
 
@@ -32,15 +32,40 @@ function [outHidden, outKV] = qwen2_block_ref_real_adapter(inHidden, inResidual,
     freqs_cis = buildFreqsCis(hp, seqLen, sizePastLen(past), ctx);
 
     useQuantBlock = is_quantized_layer(layerWeights);
+    debugInfo = struct();
 
     if useQuantBlock && ~isempty(which('qwen2_quant.layer.block'))
         cfg = mergeStruct(defaultRuntimeCfg(), getFieldOr(ctx, 'RuntimeConfig', struct()));
+        if cfg.TracePrecision
+            qwen2_quant.internal.precision_trace('reset');
+        end
+        if cfg.TraceTensors
+            qwen2_quant.internal.tensor_trace('reset');
+        end
         [hOut, present] = qwen2_quant.layer.block(h, past, layerWeights, hp, freqs_cis, cfg);
+        if cfg.TracePrecision
+            debugInfo.PrecisionTrace = qwen2_quant.internal.precision_trace('get');
+        end
+        if cfg.TraceTensors
+            debugInfo.TensorTrace = qwen2_quant.internal.tensor_trace('get');
+        end
     elseif ~isempty(which('qwen2.layer.block'))
         [hOut, present] = qwen2.layer.block(h, past, layerWeights, hp, freqs_cis);
     elseif ~isempty(which('qwen2_quant.layer.block'))
         cfg = mergeStruct(defaultRuntimeCfg(), getFieldOr(ctx, 'RuntimeConfig', struct()));
+        if cfg.TracePrecision
+            qwen2_quant.internal.precision_trace('reset');
+        end
+        if cfg.TraceTensors
+            qwen2_quant.internal.tensor_trace('reset');
+        end
         [hOut, present] = qwen2_quant.layer.block(h, past, layerWeights, hp, freqs_cis, cfg);
+        if cfg.TracePrecision
+            debugInfo.PrecisionTrace = qwen2_quant.internal.precision_trace('get');
+        end
+        if cfg.TraceTensors
+            debugInfo.TensorTrace = qwen2_quant.internal.tensor_trace('get');
+        end
     else
         error('qwen2_block_ref_real_adapter:MissingDependency', ...
             'Neither qwen2.layer.block nor qwen2_quant.layer.block is available on MATLAB path.');

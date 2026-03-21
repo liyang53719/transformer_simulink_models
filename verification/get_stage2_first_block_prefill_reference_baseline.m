@@ -21,6 +21,7 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     end
 
     [params, sourceInfo] = load_qwen_reference_params(paramsSource, rootDir);
+    enableStageTrace = logical(getFieldOr(options, 'EnableStageTrace', false));
     tokenMask = logical(stimulus.in_valid(:));
     tokenHidden = single(stimulus.in_hidden(tokenMask));
     tokenResidual = single(stimulus.in_residual(tokenMask));
@@ -53,6 +54,113 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     baseline.reference_prefill_out_hidden_abs_mean = single(mean(abs(single(outHiddenMatrix)), 1))';
     baseline.reference_scalar_contract_out_hidden = contractOutputs(:);
     baseline.reference_kv_present = isstruct(outKV) && isfield(outKV, 'keys') && ~isempty(outKV.keys);
+    if enableStageTrace
+        baseline.reference_stage_contract_trace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx);
+    else
+        baseline.reference_stage_contract_trace = struct();
+    end
+end
+
+function stageTrace = build_reference_stage_contract_trace(stimulus, tokenHidden, tokenResidual, tokenSampleIndices, ctx)
+    stageTrace = struct();
+    tokenCount = numel(tokenHidden);
+    hiddenSize = double(ctx.Parameters.Hyperparameters.HiddenSize);
+    for tokenIndex = 1:tokenCount
+        traceCtx = ctx;
+        traceCtx.RuntimeConfig = struct('TracePrecision', false, 'TraceTensors', true);
+        traceCtx.TokenPos = double(getScalarOr(stimulus, 'cfg_token_pos', tokenSampleIndices(tokenIndex), tokenIndex));
+        seqLen = max(1, round(double(getFieldOr(stimulus, 'cfg_seq_len', tokenIndex))));
+
+        inHiddenMatrix = repmat(single(tokenHidden(tokenIndex)), hiddenSize, seqLen);
+        inResidualMatrix = zeros(hiddenSize, seqLen, 'single');
+        kvReadData = single([]);
+
+        [outHiddenMatrix, ~, debugInfo] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, kvReadData, traceCtx);
+        tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
+        tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
+        names = fieldnames(tokenTrace);
+        for i = 1:numel(names)
+            name = names{i};
+            if ~isfield(stageTrace, name)
+                stageTrace.(name) = zeros(tokenCount, 1, 'single');
+            end
+            stageTrace.(name)(tokenIndex) = single(tokenTrace.(name));
+        end
+    end
+end
+
+function stageTrace = reduce_reference_stage_trace(tensorTrace)
+    stageTrace = struct();
+    if ~isstruct(tensorTrace) || isempty(tensorTrace)
+        return;
+    end
+
+    for i = 1:numel(tensorTrace)
+        opName = string(getFieldOr(tensorTrace(i), 'Op', ''));
+        value = getFieldOr(tensorTrace(i), 'Value', []);
+        if strlength(opName) == 0 || isempty(value)
+            continue;
+        end
+        stageName = map_reference_trace_op(opName);
+        if strlength(stageName) == 0
+            continue;
+        end
+        stageTrace.(stageName) = reduce_reference_trace_tensor(value);
+    end
+
+    if isfield(stageTrace, 'q_proj_out') && isfield(stageTrace, 'k_proj_out') && isfield(stageTrace, 'v_proj_out')
+        stageTrace.qkv_out = stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out;
+    end
+    if isfield(stageTrace, 'o_proj_out')
+        stageTrace.attn_out = stageTrace.o_proj_out;
+        stageTrace.attn_scorev_reduce = stageTrace.o_proj_out;
+    end
+    if isfield(stageTrace, 'swiglu_out')
+        stageTrace.ffn_swiglu_mul = stageTrace.swiglu_out;
+    end
+    if isfield(stageTrace, 'down_proj_out')
+        stageTrace.ffn_down_stage = stageTrace.down_proj_out;
+    end
+end
+
+function stageName = map_reference_trace_op(opName)
+    switch char(opName)
+        case 'block.input_norm.output'
+            stageName = "rms_out";
+        case 'attn.q_proj.output'
+            stageName = "q_proj_out";
+        case 'attn.k_proj.output'
+            stageName = "k_proj_out";
+        case 'attn.v_proj.output'
+            stageName = "v_proj_out";
+        case 'attn.o_proj.output'
+            stageName = "o_proj_out";
+        case 'mlp.up_proj.output'
+            stageName = "ffn_up_mul";
+        case 'mlp.gate_proj.output'
+            stageName = "ffn_gate_mul";
+        case 'mlp.swiglu.output'
+            stageName = "swiglu_out";
+        case 'mlp.down_proj.output'
+            stageName = "down_proj_out";
+        otherwise
+            stageName = "";
+    end
+end
+
+function scalarValue = reduce_reference_trace_tensor(value)
+    data = single(value);
+    dims = size(data);
+    if isempty(data)
+        scalarValue = single(0);
+        return;
+    end
+    if numel(dims) >= 2
+        idx = repmat({':'}, 1, numel(dims));
+        idx{2} = dims(2);
+        data = single(data(idx{:}));
+    end
+    scalarValue = single(mean(data, 'all'));
 end
 
 function contract = build_prefill_contract(stimulus, tokenHidden, tokenResidual, tokenIndex, sampleIndex)
