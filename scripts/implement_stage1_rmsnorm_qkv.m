@@ -231,6 +231,7 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'kv_cache_if_u/1', 'attention_u/1');
         force_add_line(mdlName, 'qkv_proj_u/4', 'attention_u/5');
         force_add_line(mdlName, 'prefill_sched_u/1', 'attention_u/4');
+        delete_blocks_if_exist(mdlName, {'attn_residual_sum'});
         force_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
         force_add_line(mdlName, 'attention_u/3', 'ffn_swiglu_u/4');
         force_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
