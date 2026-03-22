@@ -92,7 +92,7 @@ function [realStageTrace, placeholderStageTrace, mergedStageTrace] = build_refer
         tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
         placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenResidual(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
         tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
-        mergedTrace = merge_stage_trace_real_first(tokenTrace, placeholderTrace);
+        mergedTrace = merge_stage_trace_placeholder_first(placeholderTrace, tokenTrace);
         realStageTrace = assign_stage_trace_token(realStageTrace, tokenTrace, tokenIndex, tokenCount);
         placeholderStageTrace = assign_stage_trace_token(placeholderStageTrace, placeholderTrace, tokenIndex, tokenCount);
         mergedStageTrace = assign_stage_trace_token(mergedStageTrace, mergedTrace, tokenIndex, tokenCount);
@@ -110,17 +110,17 @@ function stageTrace = assign_stage_trace_token(stageTrace, tokenTrace, tokenInde
     end
 end
 
-function mergedTrace = merge_stage_trace_real_first(realTrace, placeholderTrace)
-    mergedTrace = realTrace;
-    if ~isstruct(placeholderTrace)
+function mergedTrace = merge_stage_trace_placeholder_first(placeholderTrace, realTrace)
+    mergedTrace = placeholderTrace;
+    if ~isstruct(realTrace)
         return;
     end
 
-    names = fieldnames(placeholderTrace);
+    names = fieldnames(realTrace);
     for i = 1:numel(names)
         name = names{i};
         if ~isfield(mergedTrace, name)
-            mergedTrace.(name) = placeholderTrace.(name);
+            mergedTrace.(name) = realTrace.(name);
         end
     end
 end

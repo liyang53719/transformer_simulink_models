@@ -102,7 +102,7 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
     end
 
     fprintf('Stage2 first-block prefill stage trace audit PASS\n');
-    fprintf('  note: real-trace diffs are canonical; placeholder diffs are heuristic sanity checks only and must not drive builder semantics.\n');
+    fprintf('  note: slx_ref_diff now tracks the scalar contract trace; slx_real_diff remains supplemental because the real adapter folds in_hidden + in_residual before internal stages.\n');
     for i = 1:numel(result.stages)
         stageResult = result.stages(i);
         fprintf('  %s phase=%.1f valid_count=%d max_abs=%g slx_ref_diff=%s slx_ref_core_diff=%s slx_real_diff=%s slx_real_core_diff=%s slx_placeholder_diff=%s slx_placeholder_core_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...

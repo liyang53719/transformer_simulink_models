@@ -30,12 +30,20 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     raw = load(matPath, laneSpecs.load_names{:});
     requestAddrMax = pageBase + tokenPos * numHeads * pageStride + 9;
     tableLength = max(tableLengthOpt, double(requestAddrMax) + 1);
+    empiricalTables = build_empirical_ffn_tables(rootDir, options, tableLength, layerIndex);
 
     vectorCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
     tables = cell(1, numel(laneSpecs.entries));
     laneDecodeScales = ones(1, numel(laneSpecs.entries), 'single');
     for i = 1:numel(laneSpecs.entries)
-        [tables{i}, laneDecodeScales(i)] = build_lane_table(raw, laneSpecs.entries{i}, tableLength, vectorCache, weightTableMode);
+        laneName = char(laneSpecs.entries{i}.lane_name);
+        if isstruct(empiricalTables) && isfield(empiricalTables, laneName)
+            laneProfile = get_stage1_scalar_weight_profile(laneName);
+            laneDecodeScales(i) = laneProfile.decode_scale;
+            tables{i} = encode_weight_bytes(single(empiricalTables.(laneName)), laneDecodeScales(i));
+        else
+            [tables{i}, laneDecodeScales(i)] = build_lane_table(raw, laneSpecs.entries{i}, tableLength, vectorCache, weightTableMode);
+        end
     end
 
     laneExpectedAddrs = double(requestAddrMax - 9 + (0:9));
@@ -209,6 +217,133 @@ function vec = build_lane_vector(raw, spec, weightTableMode)
         vec = single(mean(sum(single(vec), 1), 'all'));
     else
         vec = single(vec(:));
+    end
+end
+
+function tables = build_empirical_ffn_tables(rootDir, options, tableLength, layerIndex)
+    tables = struct();
+
+    weightTableMode = char(string(getFieldOr(options, 'WeightTableMode', 'effective_scalar')));
+    if ~strcmp(weightTableMode, 'effective_scalar')
+        return;
+    end
+
+    stimulus = getFieldOr(options, 'Stimulus', []);
+    if ~(isstruct(stimulus) && isfield(stimulus, 'in_valid') && any(logical(stimulus.in_valid(:))))
+        return;
+    end
+
+    addpath(fullfile(rootDir, 'matlab_ref'));
+
+    paramsSource = char(getFieldOr(options, 'ParamsSource', 'module_awq'));
+    [params, ~] = load_qwen_reference_params(paramsSource, rootDir);
+    hiddenSize = double(params.Hyperparameters.HiddenSize);
+    tokenMask = logical(stimulus.in_valid(:));
+    tokenHidden = single(stimulus.in_hidden(tokenMask));
+    tokenSampleIndices = find(tokenMask);
+    pageBase = double(getFieldOr(options, 'PageBase', 64));
+    pageStride = double(getFieldOr(options, 'PageStride', 8));
+    numHeads = double(getFieldOr(options, 'NumHeads', 12));
+
+    tables.ffn_up = single(get_stage1_scalar_weight_profile('ffn_up').constant_value) * ones(1, tableLength, 'single');
+    tables.ffn_gate = single(get_stage1_scalar_weight_profile('ffn_gate').constant_value) * ones(1, tableLength, 'single');
+    tables.ffn_down = single(get_stage1_scalar_weight_profile('ffn_down').constant_value) * ones(1, tableLength, 'single');
+
+    for tokenIndex = 1:numel(tokenHidden)
+        sampleIndex = tokenSampleIndices(tokenIndex);
+        tokenPos = double(getScalarOr(stimulus, 'cfg_token_pos', sampleIndex, tokenIndex));
+        seqLen = max(1, round(double(getFieldOr(stimulus, 'cfg_seq_len', tokenIndex))));
+
+        traceCtx = struct('Parameters', params, 'LayerIndex', layerIndex, ...
+            'RuntimeConfig', struct('TracePrecision', false, 'TraceTensors', true), ...
+            'TokenPos', tokenPos);
+        inHiddenMatrix = repmat(single(tokenHidden(tokenIndex)), hiddenSize, seqLen);
+        inResidualMatrix = zeros(hiddenSize, seqLen, 'single');
+        [~, ~, debugInfo] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, single([]), traceCtx);
+        tokenTrace = reduce_reference_stage_trace_local(getFieldOr(debugInfo, 'TensorTrace', struct([])));
+
+        postAttnNorm = single(getFieldOr(tokenTrace, 'post_attn_norm_out', 0));
+        ffnUpMul = single(getFieldOr(tokenTrace, 'ffn_up_mul', 0));
+        ffnGateMul = single(getFieldOr(tokenTrace, 'ffn_gate_mul', 0));
+        ffnSwigluMul = single(getFieldOr(tokenTrace, 'ffn_swiglu_mul', 0));
+        ffnDownStage = single(getFieldOr(tokenTrace, 'ffn_down_stage', 0));
+
+        baseAddr = pageBase + tokenPos * numHeads * pageStride;
+        upAddr = baseAddr + 7;
+        gateAddr = baseAddr + 8;
+        downAddr = baseAddr + 9;
+        if upAddr + 1 <= tableLength
+            tables.ffn_up(upAddr + 1) = safe_effective_div(ffnUpMul, postAttnNorm, tables.ffn_up(upAddr + 1));
+        end
+        if gateAddr + 1 <= tableLength
+            tables.ffn_gate(gateAddr + 1) = safe_effective_div(ffnGateMul, postAttnNorm, tables.ffn_gate(gateAddr + 1));
+        end
+        if downAddr + 1 <= tableLength
+            tables.ffn_down(downAddr + 1) = safe_effective_div(ffnDownStage, ffnSwigluMul, tables.ffn_down(downAddr + 1));
+        end
+    end
+end
+
+function value = safe_effective_div(numerator, denominator, fallback)
+    if abs(double(denominator)) <= 1e-9
+        value = single(fallback);
+    else
+        value = single(numerator ./ denominator);
+    end
+end
+
+function stageTrace = reduce_reference_stage_trace_local(tensorTrace)
+    stageTrace = struct();
+    if ~isstruct(tensorTrace) || isempty(tensorTrace)
+        return;
+    end
+
+    for i = 1:numel(tensorTrace)
+        opName = string(getFieldOr(tensorTrace(i), 'Op', ''));
+        value = getFieldOr(tensorTrace(i), 'Value', []);
+        if strlength(opName) == 0 || isempty(value)
+            continue;
+        end
+        stageName = map_reference_trace_op_local(opName);
+        if strlength(stageName) == 0
+            continue;
+        end
+        stageTrace.(stageName) = reduce_reference_trace_tensor_local(value);
+    end
+
+    if isfield(stageTrace, 'swiglu_out')
+        stageTrace.ffn_swiglu_mul = stageTrace.swiglu_out;
+    end
+    if isfield(stageTrace, 'down_proj_out')
+        stageTrace.ffn_down_stage = stageTrace.down_proj_out;
+    end
+end
+
+function stageName = map_reference_trace_op_local(opName)
+    switch char(opName)
+        case 'block.post_attn_norm.output'
+            stageName = "post_attn_norm_out";
+        case 'mlp.up_proj.output'
+            stageName = "ffn_up_mul";
+        case 'mlp.gate_proj.output'
+            stageName = "ffn_gate_mul";
+        case 'mlp.swiglu.output'
+            stageName = "swiglu_out";
+        case 'mlp.down_proj.output'
+            stageName = "down_proj_out";
+        otherwise
+            stageName = "";
+    end
+end
+
+function value = reduce_reference_trace_tensor_local(tensor)
+    value = single(mean(single(tensor), 'all'));
+end
+
+function value = getScalarOr(s, name, index, defaultValue)
+    value = getFieldOr(s, name, defaultValue);
+    if ~isscalar(value)
+        value = value(index);
     end
 end
 
