@@ -15,6 +15,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     buildModel = getFieldOr(options, 'BuildModel', false);
     assert_stage2_manual_model_policy(buildModel, mfilename);
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
+    stopTime = char(string(getFieldOr(options, 'StopTime', '8')));
 
     addpath(fullfile(rootDir, 'scripts'));
     addpath(fullfile(rootDir, 'verification'));
@@ -34,7 +35,7 @@ function result = run_stage2_real_first_block_direct_bus_regression(rootDir, opt
     inject_sample_values_into_weight_ref(tbName, meta.sample_values);
     cleanup = onCleanup(@()safe_close_models(tbName, mdlName)); %#ok<NASGU>
 
-    simOut = sim(tbName, 'StopTime', '4', 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
+    simOut = sim(tbName, 'StopTime', stopTime, 'SaveOutput', 'on', 'OutputSaveName', 'yout', ...
         'SaveFormat', 'Dataset', 'ReturnWorkspaceOutputs', 'on');
     yout = simOut.get('yout');
 

@@ -15,9 +15,12 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
     addpath(fullfile(rootDir, 'verification'));
 
     kvCfg = getFieldOr(options, 'KvAddressConfig', struct('rd_base', 0, 'wr_base', 0, 'stride_bytes', 2, 'decode_burst_len', 1));
-    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
     baselineOptions = getFieldOr(options, 'BaselineOptions', struct('NumTokens', 64, 'DriveTokenPosSequence', true));
     baseline = get_stage2_first_block_prefill_numeric_baseline(baselineOptions);
+    weightRspOptions = options;
+    weightRspOptions.BaselineOptions = baselineOptions;
+    weightRspOptions.Stimulus = baseline.stimulus;
+    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, weightRspOptions);
     signalSpecs = build_stage_signal_specs();
 
     modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
@@ -54,7 +57,10 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
         spec = signalSpecs{i};
         validSig = extract_logged_signal_object(logsout, spec.valid_name, spec.valid_block);
         dataSig = extract_logged_signal_object(logsout, spec.data_name, spec.data_block);
-        phase = resolve_output_sample_phase(validSig.Values.Time, validSig.Values.Data, sampleTimes);
+        phase = resolve_output_sample_phase(validSig.Values.Time, validSig.Values.Data, dataSig.Values.Time, dataSig.Values.Data, sampleTimes);
+        if strcmp(spec.name, 'residual_out')
+            phase = resolve_residual_output_phase(validSig.Values.Time, validSig.Values.Data, dataSig.Values.Time, dataSig.Values.Data, sampleTimes, result.stages, baseline.stimulus, phase);
+        end
         alignedTimes = sampleTimes + phase;
         validValues = resample_numeric_values(validSig.Values.Time, validSig.Values.Data, alignedTimes);
         dataValues = resample_numeric_values(dataSig.Values.Time, dataSig.Values.Data, alignedTimes);
@@ -117,6 +123,8 @@ function specs = build_stage_signal_specs()
         struct('name', 'v_proj_out', 'data_name', 'v_stream', 'data_block', 'qkv_proj_u/v_mul', 'data_port', 1, 'valid_name', 'kv_valid', 'valid_block', 'qkv_proj_u/kv_valid_alias', 'valid_port', 1), ...
         struct('name', 'qkv_out', 'data_name', 'prefill_qkv_out', 'data_block', 'qkv_proj_u', 'data_port', 1, 'valid_name', 'prefill_qkv_valid', 'valid_block', 'qkv_proj_u', 'valid_port', 4), ...
         struct('name', 'attn_out', 'data_name', 'prefill_attn_out', 'data_block', 'attention_u', 'data_port', 1, 'valid_name', 'prefill_attn_valid', 'valid_block', 'attention_u', 'valid_port', 3), ...
+        struct('name', 'attn_residual_out', 'data_name', 'prefill_attn_residual_out', 'data_block', 'attn_residual_u', 'data_port', 1, 'valid_name', 'prefill_attn_residual_valid', 'valid_block', 'attn_residual_u', 'valid_port', 2), ...
+        struct('name', 'post_attn_norm_out', 'data_name', 'prefill_post_attn_norm_out', 'data_block', 'post_attn_norm_u', 'data_port', 1, 'valid_name', 'prefill_post_attn_norm_valid', 'valid_block', 'post_attn_norm_u', 'valid_port', 2), ...
         struct('name', 'ffn_out', 'data_name', 'prefill_ffn_out', 'data_block', 'ffn_swiglu_u', 'data_port', 1, 'valid_name', 'prefill_ffn_valid', 'valid_block', 'ffn_swiglu_u', 'valid_port', 3), ...
         struct('name', 'residual_out', 'data_name', 'prefill_residual_out', 'data_block', 'residual_u', 'data_port', 1, 'valid_name', 'prefill_residual_valid', 'valid_block', 'residual_u', 'valid_port', 2), ...
         struct('name', 'attn_score_norm', 'data_name', 'prefill_attn_score_norm', 'data_block', 'attention_u/score_norm', 'data_port', 1, 'valid_name', 'prefill_attn_softmax_valid', 'valid_block', 'attention_u/softmax_valid_z', 'valid_port', 1), ...
@@ -125,7 +133,7 @@ function specs = build_stage_signal_specs()
         struct('name', 'ffn_gate_mul', 'data_name', 'prefill_ffn_gate_mul', 'data_block', 'ffn_swiglu_u/gate_mul', 'data_port', 1, 'valid_name', 'prefill_ffn_gateup_valid', 'valid_block', 'ffn_swiglu_u/gateup_pair_valid_z', 'valid_port', 1), ...
         struct('name', 'ffn_gate_norm', 'data_name', 'prefill_ffn_gate_norm', 'data_block', 'ffn_swiglu_u/gate_norm', 'data_port', 1, 'valid_name', 'prefill_ffn_gateup_valid', 'valid_block', 'ffn_swiglu_u/gateup_pair_valid_z', 'valid_port', 1), ...
         struct('name', 'ffn_gate_norm_gate', 'data_name', 'prefill_ffn_gate_norm_gate', 'data_block', 'ffn_swiglu_u/gate_norm_gate', 'data_port', 1, 'valid_name', 'prefill_ffn_gateup_valid', 'valid_block', 'ffn_swiglu_u/gateup_pair_valid_z', 'valid_port', 1), ...
-        struct('name', 'ffn_swiglu_mul', 'data_name', 'prefill_ffn_swiglu_mul', 'data_block', 'ffn_swiglu_u/swiglu_mul', 'data_port', 1, 'valid_name', 'prefill_ffn_swiglu_valid', 'valid_block', 'ffn_swiglu_u/swiglu_valid_gate_z2', 'valid_port', 1), ...
+        struct('name', 'ffn_swiglu_mul', 'data_name', 'prefill_ffn_swiglu_mul', 'data_block', 'ffn_swiglu_u/swiglu_mul_z4', 'data_port', 1, 'valid_name', 'prefill_ffn_swiglu_valid', 'valid_block', 'ffn_swiglu_u/swiglu_valid_gate_z2', 'valid_port', 1), ...
         struct('name', 'ffn_down_stage', 'data_name', 'prefill_ffn_down_stage', 'data_block', 'ffn_swiglu_u/down_stage_gate', 'data_port', 1, 'valid_name', 'prefill_ffn_down_valid', 'valid_block', 'ffn_swiglu_u/down_pair_valid_z2', 'valid_port', 1) ...
     };
 end
@@ -164,23 +172,33 @@ function maxAbsDiff = compare_residual_placeholder(stageResult, stageResults, st
         return;
     end
 
+    attnResidualIndex = find(strcmp({stageResults.name}, 'attn_residual_out'), 1, 'last');
+
     ffnStage = stageResults(ffnIndex);
-    commonCount = min([numel(stageResult.values), numel(ffnStage.values), numel(stageResult.valid_indices)]);
+    if ~isempty(attnResidualIndex)
+        attnResidualStage = stageResults(attnResidualIndex);
+        commonCount = min([numel(stageResult.values), numel(ffnStage.values), numel(attnResidualStage.values)]);
+    else
+        commonCount = min([numel(stageResult.values), numel(ffnStage.values), numel(stageResult.valid_indices)]);
+    end
     if commonCount == 0
         maxAbsDiff = NaN;
         return;
     end
 
-    residualSeries = double(stimulus.in_residual(:));
-    sampleIndices = stageResult.valid_indices(1:commonCount);
-    sampleIndices = sampleIndices(sampleIndices >= 1 & sampleIndices <= numel(residualSeries));
-    commonCount = min(commonCount, numel(sampleIndices));
-    if commonCount == 0
-        maxAbsDiff = NaN;
-        return;
+    if ~isempty(attnResidualIndex)
+        expected = double(ffnStage.values(1:commonCount)) + double(attnResidualStage.values(1:commonCount));
+    else
+        residualSeries = double(stimulus.in_residual(:));
+        sampleIndices = stageResult.valid_indices(1:commonCount);
+        sampleIndices = sampleIndices(sampleIndices >= 1 & sampleIndices <= numel(residualSeries));
+        commonCount = min(commonCount, numel(sampleIndices));
+        if commonCount == 0
+            maxAbsDiff = NaN;
+            return;
+        end
+        expected = double(ffnStage.values(1:commonCount)) + residualSeries(sampleIndices(:));
     end
-
-    expected = double(ffnStage.values(1:commonCount)) + residualSeries(sampleIndices(:));
     maxAbsDiff = max(abs(double(stageResult.values(1:commonCount)) - expected(:)));
 end
 
@@ -239,19 +257,87 @@ function lineHandle = get_src_line_handle(blockPath, portIndex)
     lineHandle = get_param(portHandles.Outport(portIndex), 'Line');
 end
 
-function phase = resolve_output_sample_phase(rawTimes, rawValues, baseSampleTimes)
-    solverStep = infer_signal_step(rawTimes);
+function phase = resolve_output_sample_phase(validTimes, validValues, dataTimes, dataValues, baseSampleTimes)
+    solverStep = min(infer_signal_step(validTimes), infer_signal_step(dataTimes));
+    if ~(solverStep > 0)
+        solverStep = max(infer_signal_step(validTimes), infer_signal_step(dataTimes));
+    end
     candidatePhases = (0:solverStep:(1 - solverStep / 2))';
     bestPhase = 0;
     bestCount = -1;
     for i = 1:numel(candidatePhases)
-        sampledValues = resample_numeric_values(rawTimes, rawValues, double(baseSampleTimes(:)) + candidatePhases(i));
+        sampledValues = resample_numeric_values(validTimes, validValues, double(baseSampleTimes(:)) + candidatePhases(i));
         count = sum(sampledValues(:) > 0.5);
         if count > bestCount
             bestCount = count;
             bestPhase = candidatePhases(i);
         end
     end
+
+    sampledData = resample_numeric_values(dataTimes, dataValues, double(baseSampleTimes(:)) + bestPhase);
+    if any(abs(double(dataValues(:))) > 1e-9) && ~any(abs(sampledData(:)) > 1e-9)
+        bestDataPhase = bestPhase;
+        bestDataCount = -1;
+        for i = 1:numel(candidatePhases)
+            sampledValues = resample_numeric_values(validTimes, validValues, double(baseSampleTimes(:)) + candidatePhases(i));
+            validMask = sampledValues(:) > 0.5;
+            sampledData = resample_numeric_values(dataTimes, dataValues, double(baseSampleTimes(:)) + candidatePhases(i));
+            dataCount = sum(abs(sampledData(validMask)) > 1e-9);
+            if dataCount > bestDataCount
+                bestDataCount = dataCount;
+                bestDataPhase = candidatePhases(i);
+            end
+        end
+        bestPhase = bestDataPhase;
+    end
+
+    phase = double(bestPhase);
+end
+
+function phase = resolve_residual_output_phase(validTimes, validValues, dataTimes, dataValues, baseSampleTimes, stageResults, stimulus, fallbackPhase)
+    solverStep = min(infer_signal_step(validTimes), infer_signal_step(dataTimes));
+    if ~(solverStep > 0)
+        solverStep = max(infer_signal_step(validTimes), infer_signal_step(dataTimes));
+    end
+    candidatePhases = (0:solverStep:(1 - solverStep / 2))';
+    bestPhase = fallbackPhase;
+    bestDiff = Inf;
+
+    ffnIndex = find(strcmp({stageResults.name}, 'ffn_out'), 1, 'last');
+    attnResidualIndex = find(strcmp({stageResults.name}, 'attn_residual_out'), 1, 'last');
+    if isempty(ffnIndex)
+        phase = double(bestPhase);
+        return;
+    end
+
+    ffnValues = double(stageResults(ffnIndex).values(:));
+    if ~isempty(attnResidualIndex)
+        skipValues = double(stageResults(attnResidualIndex).values(:));
+    else
+        skipValues = double(stimulus.in_residual(:));
+    end
+
+    for i = 1:numel(candidatePhases)
+        alignedTimes = double(baseSampleTimes(:)) + candidatePhases(i);
+        validSampled = resample_numeric_values(validTimes, validValues, alignedTimes);
+        dataSampled = resample_numeric_values(dataTimes, dataValues, alignedTimes);
+        validMask = validSampled(:) > 0.5;
+        tokenValues = double(dataSampled(validMask));
+        if isempty(tokenValues)
+            continue;
+        end
+        commonCount = min([numel(tokenValues), numel(ffnValues), numel(skipValues)]);
+        if commonCount == 0
+            continue;
+        end
+        expected = ffnValues(1:commonCount) + skipValues(1:commonCount);
+        diffValue = max(abs(tokenValues(1:commonCount) - expected));
+        if diffValue < bestDiff
+            bestDiff = diffValue;
+            bestPhase = candidatePhases(i);
+        end
+    end
+
     phase = double(bestPhase);
 end
 

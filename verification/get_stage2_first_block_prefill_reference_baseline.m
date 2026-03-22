@@ -21,7 +21,9 @@ function baseline = get_stage2_first_block_prefill_reference_baseline(rootDir, o
     end
 
     [params, sourceInfo] = load_qwen_reference_params(paramsSource, rootDir);
-    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
+    weightRspOptions = options;
+    weightRspOptions.Stimulus = stimulus;
+    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, weightRspOptions);
     enableStageTrace = logical(getFieldOr(options, 'EnableStageTrace', false));
     tokenMask = logical(stimulus.in_valid(:));
     tokenHidden = single(stimulus.in_hidden(tokenMask));
@@ -88,7 +90,7 @@ function [realStageTrace, placeholderStageTrace, mergedStageTrace] = build_refer
 
         [outHiddenMatrix, ~, debugInfo] = qwen2_block_ref_real_adapter(inHiddenMatrix, inResidualMatrix, kvReadData, traceCtx);
         tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
-        placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
+        placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenResidual(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
         tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
         mergedTrace = merge_stage_trace_real_first(tokenTrace, placeholderTrace);
         realStageTrace = assign_stage_trace_token(realStageTrace, tokenTrace, tokenIndex, tokenCount);
@@ -123,7 +125,7 @@ function mergedTrace = merge_stage_trace_real_first(realTrace, placeholderTrace)
     end
 end
 
-function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, sampleIndex, tokenIndex, realTokenTrace, weightRspCfg)
+function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, tokenResidual, sampleIndex, tokenIndex, realTokenTrace, weightRspCfg)
     stageTrace = struct();
     sampleTables = getFieldOr(weightRspCfg, 'sample_tables', {});
     laneDecodeScales = getFieldOr(weightRspCfg, 'lane_decode_scales', ones(1, max(1, numel(sampleTables)), 'single'));
@@ -162,8 +164,11 @@ function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, sampl
     stageTrace.qkv_out = single(stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out);
 
     attnOut = single(getFieldOr(realTokenTrace, 'attn_out', 0));
-    stageTrace.ffn_up_mul = single(attnOut * upWeight);
-    stageTrace.ffn_gate_mul = single(attnOut * gateWeight);
+    stageTrace.attn_residual_out = single(getFieldOr(realTokenTrace, 'attn_residual_out', attnOut + single(tokenResidual)));
+    postAttnNorm = single(getFieldOr(realTokenTrace, 'post_attn_norm_out', stageTrace.attn_residual_out));
+    stageTrace.post_attn_norm_out = postAttnNorm;
+    stageTrace.ffn_up_mul = single(postAttnNorm * upWeight);
+    stageTrace.ffn_gate_mul = single(postAttnNorm * gateWeight);
     stageTrace.ffn_gate_norm = single(stageTrace.ffn_gate_mul / (abs(stageTrace.ffn_gate_mul) + 1));
     stageTrace.ffn_gate_norm_gate = stageTrace.ffn_gate_norm;
     stageTrace.ffn_swiglu_mul = single(stageTrace.ffn_up_mul * stageTrace.ffn_gate_norm_gate);

@@ -16,7 +16,7 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     weightTableMode = char(string(getFieldOr(options, 'WeightTableMode', 'effective_scalar')));
     layerIndex = double(getFieldOr(options, 'LayerIndex', 1));
     tableLengthOpt = double(getFieldOr(options, 'TableLength', 256));
-    tokenPos = double(getFieldOr(options, 'TokenPos', 1));
+    tokenPos = resolve_effective_token_pos(options);
     numHeads = double(getFieldOr(options, 'NumHeads', 12));
     pageBase = double(getFieldOr(options, 'PageBase', 64));
     pageStride = double(getFieldOr(options, 'PageStride', 8));
@@ -62,6 +62,29 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     cfg.weight_table_mode = string(weightTableMode);
     cfg.lane_expected_addrs = laneExpectedAddrs;
     cfg.lane_names = {'gamma', 'qkv_q', 'qkv_k', 'qkv_v', 'attn_q', 'attn_k', 'attn_v', 'ffn_up', 'ffn_gate', 'ffn_down'};
+end
+
+function tokenPos = resolve_effective_token_pos(options)
+    tokenPos = double(getFieldOr(options, 'TokenPos', NaN));
+    if ~isnan(tokenPos) && tokenPos > 0
+        return;
+    end
+
+    stimulus = getFieldOr(options, 'Stimulus', []);
+    if isstruct(stimulus) && isfield(stimulus, 'cfg_token_pos') && ~isempty(stimulus.cfg_token_pos)
+        tokenPos = max(double(stimulus.cfg_token_pos(:)));
+        if tokenPos > 0
+            return;
+        end
+    end
+
+    baselineOptions = getFieldOr(options, 'BaselineOptions', struct());
+    if isstruct(baselineOptions) && logical(getFieldOr(baselineOptions, 'DriveTokenPosSequence', false))
+        tokenPos = max(1, double(getFieldOr(baselineOptions, 'NumTokens', 1)));
+        return;
+    end
+
+    tokenPos = 1;
 end
 
 function out = getFieldOr(s, name, defaultValue)
@@ -166,7 +189,7 @@ function vec = build_lane_vector(raw, spec, weightTableMode)
     if strcmp(spec.kind, 'float')
         if strcmp(weightTableMode, 'empirical_scalar') && ~isnan(laneProfile.constant_value)
             vec = laneProfile.constant_value;
-        elseif strcmp(weightTableMode, 'effective_scalar') && spec.lane_name == "gamma" && ~isnan(laneProfile.constant_value)
+        elseif strcmp(weightTableMode, 'effective_scalar') && ~isnan(laneProfile.constant_value)
             vec = laneProfile.constant_value;
         elseif strcmp(weightTableMode, 'effective_scalar') && laneProfile.reduction_mode == "mean"
             vec = single(mean(single(raw.(spec.field)(:)), 'all'));
@@ -179,6 +202,8 @@ function vec = build_lane_vector(raw, spec, weightTableMode)
     w = load_quant_linear(raw, spec.prefix);
     vec = dequantize_quant_linear(w);
     if strcmp(weightTableMode, 'empirical_scalar') && ~isnan(laneProfile.constant_value)
+        vec = laneProfile.constant_value;
+    elseif strcmp(weightTableMode, 'effective_scalar') && ~isnan(laneProfile.constant_value)
         vec = laneProfile.constant_value;
     elseif strcmp(weightTableMode, 'effective_scalar') && laneProfile.reduction_mode == "mean_colsum"
         vec = single(mean(sum(single(vec), 1), 'all'));

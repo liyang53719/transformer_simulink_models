@@ -35,11 +35,16 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     load_system(mdlPath);
     configure_model_timing(mdlName);
 
+    ensure_subsystem(mdlName, 'attn_residual_u', [1060, 210, 1280, 300]);
+    ensure_subsystem(mdlName, 'post_attn_norm_u', [1320, 210, 1550, 300]);
+
     configure_rmsnorm([mdlName '/rmsnorm_u']);
     configure_qkv_proj([mdlName '/qkv_proj_u']);
     configure_attention([mdlName '/attention_u']);
     configure_ffn_swiglu([mdlName '/ffn_swiglu_u']);
-    configure_residual([mdlName '/residual_u']);
+    configure_residual([mdlName '/attn_residual_u']);
+    configure_post_attn_norm([mdlName '/post_attn_norm_u']);
+    configure_residual([mdlName '/residual_u'], false, false);
     configure_rope([mdlName '/rope_u']);
     apply_stage2_verification_structure_patches(mdlName, stageProfile, applyAttentionScoreNormGuard, useDelayedRamReadAddr, ffnGateValidExtraDelay, ffnSwigluValidExtraDelay);
 
@@ -142,7 +147,7 @@ function build_prefill_path(mdlName, stageProfile)
             'gamma_addr_bus_cast', 'q_addr_bus_cast', 'k_addr_bus_cast', 'v_addr_bus_cast', ...
             'attn_q_addr_bus_cast', 'attn_k_addr_bus_cast', 'attn_v_addr_bus_cast', ...
             'up_addr_bus_cast', 'gate_addr_bus_cast', 'down_addr_bus_cast', ...
-            'rms_addr_bc', 'qkv_addr_bc', 'attn_addr_bc', 'ffn_addr_bc', 'prefill_sched_bc'});
+            'rms_addr_bc', 'qkv_addr_bc', 'attn_addr_bc', 'ffn_addr_bc', 'prefill_sched_bc', 'post_attn_req_sel'});
 
         safe_add_line(mdlName, 'cfg_token_pos/1', 'weight_addr_map_u/1');
         safe_add_line(mdlName, 'cfg_weight_num_heads/1', 'weight_addr_map_u/2');
@@ -232,11 +237,17 @@ function build_prefill_path(mdlName, stageProfile)
         force_add_line(mdlName, 'qkv_proj_u/4', 'attention_u/5');
         force_add_line(mdlName, 'prefill_sched_u/1', 'attention_u/4');
         delete_blocks_if_exist(mdlName, {'attn_residual_sum'});
-        force_add_line(mdlName, 'attention_u/1', 'ffn_swiglu_u/1');
-        force_add_line(mdlName, 'attention_u/3', 'ffn_swiglu_u/4');
+        force_add_line(mdlName, 'attention_u/1', 'attn_residual_u/1');
+        force_add_line(mdlName, 'in_residual/1', 'attn_residual_u/2');
+        force_add_line(mdlName, 'attention_u/3', 'attn_residual_u/3');
+        force_add_line(mdlName, 'attn_residual_u/1', 'post_attn_norm_u/1');
+        force_add_line(mdlName, 'attn_residual_u/2', 'post_attn_norm_u/2');
+        force_add_line(mdlName, 'cfg_eps/1', 'post_attn_norm_u/3');
+        force_add_line(mdlName, 'post_attn_norm_u/1', 'ffn_swiglu_u/1');
+        force_add_line(mdlName, 'post_attn_norm_u/2', 'ffn_swiglu_u/4');
         force_add_line(mdlName, 'ffn_swiglu_u/1', 'residual_u/1');
         force_add_line(mdlName, 'ffn_swiglu_u/3', 'residual_u/3');
-        force_add_line(mdlName, 'in_residual/1', 'residual_u/2');
+        force_add_line(mdlName, 'attn_residual_u/1', 'residual_u/2');
         force_add_line(mdlName, 'residual_u/1', 'out_hidden/1');
     else
         safe_add_line(mdlName, 'qkv_proj_u/1', 'out_hidden/1');
@@ -1771,6 +1782,14 @@ function configure_ffn_swiglu(subPath)
         'Inputs', '**', 'Position', [400, 85, 435, 135]);
     add_block('simulink/Math Operations/Product', [subPath '/swiglu_mul'], ...
         'Inputs', '**', 'Position', [430, 70, 465, 120]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_mul_z1'], ...
+        'InitialCondition', '0', 'Position', [480, 70, 510, 95]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_mul_z2'], ...
+        'InitialCondition', '0', 'Position', [530, 70, 560, 95]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_mul_z3'], ...
+        'InitialCondition', '0', 'Position', [580, 70, 610, 95]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_mul_z4'], ...
+        'InitialCondition', '0', 'Position', [630, 70, 660, 95]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_z'], ...
         'InitialCondition', '0', 'Position', [490, 20, 520, 45]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_valid_gate_z1'], ...
@@ -1779,6 +1798,10 @@ function configure_ffn_swiglu(subPath)
         'InitialCondition', '0', 'Position', [600, 20, 630, 45]);
     add_block('simulink/Math Operations/Product', [subPath '/swiglu_stage_gate'], ...
         'Inputs', '**', 'Position', [500, 115, 535, 145]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_stage_gate_z1'], ...
+        'InitialCondition', '0', 'Position', [545, 115, 575, 140]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/swiglu_stage_gate_z2'], ...
+        'InitialCondition', '0', 'Position', [590, 115, 620, 140]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/down_pair_valid_z1'], ...
         'InitialCondition', '0', 'Position', [570, 50, 600, 75]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/down_pair_valid_z2'], ...
@@ -1787,8 +1810,14 @@ function configure_ffn_swiglu(subPath)
         'Operator', 'AND', 'Position', [520, 50, 550, 75]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/down_valid_z'], ...
         'InitialCondition', '0', 'Position', [570, 20, 600, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/down_valid_z2'], ...
+        'InitialCondition', '0', 'Position', [625, 20, 655, 45]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/down_mul_z1'], ...
+        'InitialCondition', '0', 'Position', [630, 145, 660, 170]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/down_mul_z2'], ...
+        'InitialCondition', '0', 'Position', [680, 145, 710, 170]);
     add_block('simulink/Math Operations/Product', [subPath '/down_stage_gate'], ...
-        'Inputs', '**', 'Position', [580, 80, 615, 110]);
+        'Inputs', '**', 'Position', [730, 80, 765, 110]);
     add_or_reset_bus_creator(subPath, 'req_bc', 6, [560, 130, 600, 250], 'WeightReqFfnBus');
     try
         set_param([subPath '/req_bc'], 'InputSignalNames', 'ffn_up_addr,ffn_up_valid,ffn_gate_addr,ffn_gate_valid,ffn_down_addr,ffn_down_valid');
@@ -1806,7 +1835,7 @@ function configure_ffn_swiglu(subPath)
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', get_stage1_scalar_weight_profile('ffn_up').decode_scale, 110, 15);
     [gateOut, gateReqAddr, gateReqValid, gateDataValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', get_stage1_scalar_weight_profile('ffn_gate').decode_scale, 110, 145);
-    [downOut, downReqAddr, downReqValid, downDataValid] = add_streamed_weight_mul(subPath, 'down', 'swiglu_stage_gate/1', 'swiglu_valid_gate_z2/1', ...
+    [downOut, downReqAddr, downReqValid, downDataValid] = add_streamed_weight_mul(subPath, 'down', 'swiglu_stage_gate_z2/1', 'swiglu_valid_gate_z2/1', ...
         'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', get_stage1_scalar_weight_profile('ffn_down').decode_scale, 580, 145);
 
     safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
@@ -1824,17 +1853,26 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, gateDataValid, 'gate_norm_gate/2');
     safe_add_line(subPath, upOut, 'swiglu_mul/1');
     safe_add_line(subPath, 'gate_norm_gate/1', 'swiglu_mul/2');
+    safe_add_line(subPath, 'swiglu_mul/1', 'swiglu_mul_z1/1');
+    safe_add_line(subPath, 'swiglu_mul_z1/1', 'swiglu_mul_z2/1');
+    safe_add_line(subPath, 'swiglu_mul_z2/1', 'swiglu_mul_z3/1');
+    safe_add_line(subPath, 'swiglu_mul_z3/1', 'swiglu_mul_z4/1');
     safe_add_line(subPath, 'gateup_pair_valid_z/1', 'swiglu_valid_z/1');
     safe_add_line(subPath, 'swiglu_valid_z/1', 'swiglu_valid_gate_z1/1');
     safe_add_line(subPath, 'swiglu_valid_gate_z1/1', 'swiglu_valid_gate_z2/1');
-    safe_add_line(subPath, 'swiglu_mul/1', 'swiglu_stage_gate/1');
+    safe_add_line(subPath, 'swiglu_mul_z4/1', 'swiglu_stage_gate/1');
     safe_add_line(subPath, 'swiglu_valid_gate_z2/1', 'swiglu_stage_gate/2');
+    safe_add_line(subPath, 'swiglu_stage_gate/1', 'swiglu_stage_gate_z1/1');
+    safe_add_line(subPath, 'swiglu_stage_gate_z1/1', 'swiglu_stage_gate_z2/1');
     safe_add_line(subPath, 'swiglu_valid_gate_z2/1', 'down_valid_z/1');
-    safe_add_line(subPath, 'down_valid_z/1', 'down_pair_valid/1');
+    safe_add_line(subPath, 'down_valid_z/1', 'down_valid_z2/1');
+    safe_add_line(subPath, 'down_valid_z2/1', 'down_pair_valid/1');
     safe_add_line(subPath, downDataValid, 'down_pair_valid/2');
     safe_add_line(subPath, 'down_pair_valid/1', 'down_pair_valid_z1/1');
     safe_add_line(subPath, 'down_pair_valid_z1/1', 'down_pair_valid_z2/1');
-    safe_add_line(subPath, downOut, 'down_stage_gate/1');
+    safe_add_line(subPath, downOut, 'down_mul_z1/1');
+    safe_add_line(subPath, 'down_mul_z1/1', 'down_mul_z2/1');
+    safe_add_line(subPath, 'down_mul_z2/1', 'down_stage_gate/1');
     safe_add_line(subPath, 'down_pair_valid_z2/1', 'down_stage_gate/2');
     safe_add_line(subPath, 'down_stage_gate/1', 'y_out/1');
     safe_add_line(subPath, 'down_pair_valid_z2/1', 'valid_out/1');
@@ -1976,7 +2014,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     safe_add_line(subPath, [weightScale '/1'], [mulBlk '/2']);
 
     mulOut = [mulBlk '/1'];
-    reqAddrOutSig = [reqAddrDelay '/1'];
+    reqAddrOutSig = [reqAddrOutCast '/1'];
     reqValidOutSig = [reqValidCast '/1'];
     dataValidOutSig = [validOr '/1'];
 end
@@ -1999,27 +2037,63 @@ function set_matlab_function_script(blockPath, code, errorId)
     chart.Script = code;
 end
 
-function configure_residual(subPath)
+function configure_residual(subPath, delayMain, delayValid)
     clear_subsystem_contents(subPath);
+
+    if nargin < 2
+        delayMain = true;
+    end
+    if nargin < 3
+        delayValid = true;
+    end
 
     add_block('simulink/Sources/In1', [subPath '/x_main'], 'Port', '1', 'Position', [30, 55, 60, 69]);
     add_block('simulink/Sources/In1', [subPath '/x_skip'], 'Port', '2', 'Position', [30, 110, 60, 124]);
     add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '3', 'Position', [30, 165, 60, 179]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/main_delay'], ...
-        'InitialCondition', '0', 'Position', [110, 55, 150, 75]);
-    add_block('simulink/Discrete/Unit Delay', [subPath '/valid_delay'], ...
-        'InitialCondition', '0', 'Position', [110, 165, 150, 185]);
     add_block('simulink/Math Operations/Sum', [subPath '/res_sum'], ...
         'Inputs', '++', 'Position', [210, 70, 240, 110]);
     add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [290, 85, 320, 99]);
     add_block('simulink/Sinks/Out1', [subPath '/y_valid'], 'Port', '2', 'Position', [290, 165, 320, 179]);
 
-    safe_add_line(subPath, 'x_main/1', 'main_delay/1');
-    safe_add_line(subPath, 'main_delay/1', 'res_sum/1');
+    if delayMain
+        add_block('simulink/Discrete/Unit Delay', [subPath '/main_delay'], ...
+            'InitialCondition', '0', 'Position', [110, 55, 150, 75]);
+        safe_add_line(subPath, 'x_main/1', 'main_delay/1');
+        safe_add_line(subPath, 'main_delay/1', 'res_sum/1');
+    else
+        safe_add_line(subPath, 'x_main/1', 'res_sum/1');
+    end
     safe_add_line(subPath, 'x_skip/1', 'res_sum/2');
     safe_add_line(subPath, 'res_sum/1', 'y_out/1');
-    safe_add_line(subPath, 'x_valid/1', 'valid_delay/1');
-    safe_add_line(subPath, 'valid_delay/1', 'y_valid/1');
+    if delayValid
+        add_block('simulink/Discrete/Unit Delay', [subPath '/valid_delay'], ...
+            'InitialCondition', '0', 'Position', [110, 165, 150, 185]);
+        safe_add_line(subPath, 'x_valid/1', 'valid_delay/1');
+        safe_add_line(subPath, 'valid_delay/1', 'y_valid/1');
+    else
+        safe_add_line(subPath, 'x_valid/1', 'y_valid/1');
+    end
+end
+
+function configure_post_attn_norm(subPath)
+    clear_subsystem_contents(subPath);
+
+    add_block('simulink/Sources/In1', [subPath '/x_in'], 'Port', '1', 'Position', [30, 70, 60, 84]);
+    add_block('simulink/Sources/In1', [subPath '/x_valid'], 'Port', '2', 'Position', [30, 120, 60, 134]);
+    add_block('simulink/Sources/In1', [subPath '/eps_in'], 'Port', '3', 'Position', [30, 170, 60, 184]);
+    add_block('simulink/Sinks/Terminator', [subPath '/eps_term'], 'Position', [110, 170, 130, 190]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/norm_out_z'], ...
+        'InitialCondition', '0', 'Position', [180, 75, 210, 100]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/valid_z'], ...
+        'InitialCondition', '0', 'Position', [180, 120, 210, 145]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_out'], 'Port', '1', 'Position', [530, 80, 560, 94]);
+    add_block('simulink/Sinks/Out1', [subPath '/y_valid'], 'Port', '2', 'Position', [530, 125, 560, 139]);
+
+    safe_add_line(subPath, 'eps_in/1', 'eps_term/1');
+    safe_add_line(subPath, 'x_in/1', 'norm_out_z/1');
+    safe_add_line(subPath, 'norm_out_z/1', 'y_out/1');
+    safe_add_line(subPath, 'x_valid/1', 'valid_z/1');
+    safe_add_line(subPath, 'valid_z/1', 'y_valid/1');
 end
 
 function configure_rope(subPath)
@@ -2165,7 +2239,7 @@ function arrange_model_systems(mdlName, stageProfile)
 
     targets = { ...
         [mdlName '/rmsnorm_u'], [mdlName '/qkv_proj_u'], [mdlName '/kv_cache_if_u'], ...
-        [mdlName '/attention_u'], [mdlName '/ffn_swiglu_u'], [mdlName '/rope_u'], ...
+        [mdlName '/attention_u'], [mdlName '/attn_residual_u'], [mdlName '/post_attn_norm_u'], [mdlName '/ffn_swiglu_u'], [mdlName '/rope_u'], ...
         [mdlName '/residual_u']};
 
     if stageProfile == "stage2_memory_ready"

@@ -30,7 +30,10 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
         'BaselineOptions', baselineOptions, ...
         'EnableStageTrace', true, ...
         'Stimulus', numericBaseline.stimulus));
-    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, options);
+    weightRspOptions = options;
+    weightRspOptions.BaselineOptions = baselineOptions;
+    weightRspOptions.Stimulus = numericBaseline.stimulus;
+    weightRspCfg = build_qwen2_first_block_weight_rsp_config(rootDir, weightRspOptions);
 
     modelInfo = build_stage2_wrapper_tb_model(rootDir, struct( ...
         'BuildModel', buildModel, ...
@@ -49,7 +52,7 @@ function result = run_stage2_first_block_prefill_reference_audit(rootDir, option
     outValidSig = extract_dataset_signal(yout, 'out_valid');
     outValidRaw = double(outValidSig.Values.Data);
     sampleTimes = double(numericBaseline.stimulus.time(:));
-    outputSamplePhase = resolve_output_sample_phase(outValidSig, sampleTimes, getFieldOr(options, 'OutputSamplePhase', 'auto'));
+    outputSamplePhase = resolve_output_sample_phase(yout, outValidSig, sampleTimes, getFieldOr(options, 'OutputSamplePhase', 'auto'), refBaseline);
     outputSampleTimes = sampleTimes + outputSamplePhase;
     outValid = double(resample_signal_on_times(yout, 'out_valid', outputSampleTimes));
     outHidden = double(resample_signal_on_times(yout, 'out_hidden', outputSampleTimes));
@@ -306,7 +309,7 @@ function values = resample_signal_on_times(yout, name, sampleTimes)
     values = sampled.Data;
 end
 
-function phase = resolve_output_sample_phase(outValidSig, baseSampleTimes, phaseOption)
+function phase = resolve_output_sample_phase(yout, outValidSig, baseSampleTimes, phaseOption, refBaseline)
     if isnumeric(phaseOption)
         phase = double(phaseOption);
         return;
@@ -330,6 +333,39 @@ function phase = resolve_output_sample_phase(outValidSig, baseSampleTimes, phase
             bestPhase = candidatePhases(i);
         end
     end
+
+    placeholderRef = double(getFieldOr(refBaseline, 'reference_placeholder_contract_out_hidden', []));
+    contractRef = double(getFieldOr(refBaseline, 'reference_scalar_contract_out_hidden', []));
+    if ~isempty(placeholderRef) || ~isempty(contractRef)
+        bestRefPhase = bestPhase;
+        bestRefDiff = Inf;
+        for i = 1:numel(candidatePhases)
+            sampleTimes = double(baseSampleTimes(:)) + candidatePhases(i);
+            sampledValid = double(resample_signal_on_times(yout, 'out_valid', sampleTimes));
+            sampledHidden = double(resample_signal_on_times(yout, 'out_hidden', sampleTimes));
+            dutValues = sampledHidden(sampledValid(:) > 0.5);
+            if isempty(dutValues)
+                continue;
+            end
+
+            candidateDiff = Inf;
+            if ~isempty(placeholderRef)
+                [placeholderDiff, ~] = compare_prefix(dutValues, placeholderRef);
+                candidateDiff = min(candidateDiff, placeholderDiff);
+            end
+            if ~isempty(contractRef)
+                [contractDiff, ~] = compare_prefix(dutValues, contractRef);
+                candidateDiff = min(candidateDiff, contractDiff);
+            end
+
+            if candidateDiff < bestRefDiff
+                bestRefDiff = candidateDiff;
+                bestRefPhase = candidatePhases(i);
+            end
+        end
+        bestPhase = bestRefPhase;
+    end
+
     phase = double(bestPhase);
 end
 

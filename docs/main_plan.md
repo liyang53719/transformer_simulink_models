@@ -1,6 +1,41 @@
-## Plan: Qwen2 NPU 系统架构 V2（Memory-First）
+## Plan: Qwen2 第一层 Block 主线计划（2026-03-22 重排）
 
-本轮以“功能闭环优先”为原则，按你确认的方向并行兼顾 FPGA 可验证与 ASIC 可迁移：先在 Simulink/SoC Blockset 中把 prefill+decode+KV+DDR 跑通，再把同一套接口与时序约束抽象为 ASIC 版本。性能约束先按 1.5B 4bit、decode 10 tok/s、1GHz 目标倒推带宽与流水深度，FlashAttention 采用分阶段落地（先可跑通，再替换优化核）。
+本轮根据新增 arXiv 调研结果，将主线目标从“继续扩大 memory-first 顶层系统规划”收敛为“先把第一层 block 的真实 stage 语义做对，再决定进一步的 memory/dataflow 优化”。调研结论见 [docs/11_arxiv_fpga_transformer_accelerator_research_20260322.md](docs/11_arxiv_fpga_transformer_accelerator_research_20260322.md)。
+
+当前最关键判断：
+- attention 分母链路还值得继续整理，但它不是当前第一优先级。
+- 当前 tracked SLX 的主误差更像来自 post-attn 边界缺失，而不是某个 tile 常量没调好。
+- 因此下一步先补 `attn_residual_out` 和 `post_attn_norm_out` 两个显式 stage，再继续做 attention 数值链重构。
+
+## 当前优先架构修改
+
+1. 在 canonical builder 中显式实现 post-attn 微流水：`attn_out -> attn_residual_out -> post_attn_norm_out -> ffn`。
+2. 让最终 residual skip 与真实 block stage 对齐，而不是继续直接使用原始 `in_residual` 占位。
+3. 在 stage 语义稳定后，再拆 attention 中的“数学归一化项”和“调度项”。
+4. 继续固定 norm/gate 路径的类型，避免类似 `head_group_norm` 的截断问题在新 stage 中复现。
+
+## Immediate Slice（重排后执行包）
+
+1. S1-builder 结构改造
+- 仅修改 [scripts/implement_stage1_rmsnorm_qkv.m](scripts/implement_stage1_rmsnorm_qkv.m)，为 prefill path 增加显式 `attn_residual_out` 与 `post_attn_norm_out` stage。
+- 这一步必须保留 canonical builder policy，不允许在 verification 阶段 patch tracked SLX。
+
+2. S2-stage 审计升级
+- 扩展 stage trace / reference audit，使真实 tracked SLX 能直接对比 `attn_residual_out` 与 `post_attn_norm_out`。
+- 目标不是先追求完全等价，而是先确认 FFN 输入 stage 是否回到正确语义。
+
+3. S3-residual/FFN 收敛验证
+- 用真实 tracked SLX 重跑第一层 prefill 审计，重点看 `ffn_gate_mul`、`ffn_down_stage`、`residual_out` 是否下降。
+
+4. S4-attention 数值链二次收敛
+- 在 S1-S3 完成后，再继续重构 `score_tile_bias` / `scorev_den`，把调度参数从数学分母中拆出。
+
+## 不再作为近期第一优先级的事项
+- 暂不继续扩大 DDR/KV/AXI 顶层系统规划文档范围。
+- 暂不优先推进 decode 持久状态、DPR、异构 CPU-FPGA 协同等系统级扩展。
+- 暂不继续做只围绕 `tile_k`/`tile_out` 的局部试错。
+
+## Steps
 
 **Steps**
 1. Phase A 需求冻结与预算建模（阻塞后续）
@@ -57,7 +92,11 @@
 8.3 形成 ASIC 预研输入：面积/带宽热点列表、潜在瓶颈与可选优化杠杆。
 
 
-**Immediate Slice（下一轮执行包）**
+**Historical System Plan（保留备查）**
+
+以下内容保留为更大范围系统规划草案，当前不作为最近两轮工作的主执行顺序。待第一层 block 的 post-attn 结构和 real-first 数值主线收敛后，再回到这份系统规划继续推进。
+
+**Immediate Slice（旧版系统执行包）**
 1. S1-接口冻结补丁（文档）
 - 在 docs/05 中新增任务级控制口定义（busy/irq/error_code）与 reset 语义（cold/warm）。
 - 在 docs/07 中把 ctrl_fsm_u 扩展为任务级状态并明确 prefill/decode 进入与退出条件。
