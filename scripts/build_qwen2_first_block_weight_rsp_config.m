@@ -13,6 +13,7 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     end
 
     paramsMatFile = getFieldOr(options, 'ParamsMatFile', '');
+    weightTableMode = char(string(getFieldOr(options, 'WeightTableMode', 'effective_scalar')));
     layerIndex = double(getFieldOr(options, 'LayerIndex', 1));
     tableLengthOpt = double(getFieldOr(options, 'TableLength', 256));
     tokenPos = double(getFieldOr(options, 'TokenPos', 1));
@@ -32,8 +33,9 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
 
     vectorCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
     tables = cell(1, numel(laneSpecs.entries));
+    laneDecodeScales = ones(1, numel(laneSpecs.entries), 'single');
     for i = 1:numel(laneSpecs.entries)
-        tables{i} = build_lane_table(raw, laneSpecs.entries{i}, tableLength, vectorCache);
+        [tables{i}, laneDecodeScales(i)] = build_lane_table(raw, laneSpecs.entries{i}, tableLength, vectorCache, weightTableMode);
     end
 
     laneExpectedAddrs = double(requestAddrMax - 9 + (0:9));
@@ -41,7 +43,7 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     laneDecodedValues = zeros(1, 10, 'single');
     for i = 1:10
         laneSampleValues(i) = double(tables{i}(laneExpectedAddrs(i) + 1));
-        laneDecodedValues(i) = decode_weight_byte(uint8(laneSampleValues(i)));
+        laneDecodedValues(i) = decode_weight_byte(uint8(laneSampleValues(i)), laneDecodeScales(i));
     end
 
     cfg = struct();
@@ -49,13 +51,15 @@ function cfg = build_qwen2_first_block_weight_rsp_config(rootDir, options)
     cfg.tag_base = tagBase;
     cfg.tag_stride = tagStride;
     cfg.sample_tables = tables;
+    cfg.lane_decode_scales = laneDecodeScales;
     cfg.params_mat = string(matPath);
     cfg.layer_index = layerIndex;
     cfg.table_length = double(tableLength);
     cfg.request_addr_max = double(requestAddrMax);
     cfg.sample_values = laneSampleValues;
     cfg.decoded_sample_values = laneDecodedValues;
-    cfg.sample_encoding = 'int8_affine_q7_128';
+    cfg.sample_encoding = 'int8_affine_q7_scaled';
+    cfg.weight_table_mode = string(weightTableMode);
     cfg.lane_expected_addrs = laneExpectedAddrs;
     cfg.lane_names = {'gamma', 'qkv_q', 'qkv_k', 'qkv_v', 'attn_q', 'attn_k', 'attn_v', 'ffn_up', 'ffn_gate', 'ffn_down'};
 end
@@ -97,21 +101,25 @@ end
 function specs = build_lane_specs(layerPrefix)
     specs = struct();
     specs.entries = {
-        struct('kind', 'float', 'field', [layerPrefix 'input_layernorm'], 'phase', 0), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_q_proj'], 'phase', 0), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_k_proj'], 'phase', 11), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_v_proj'], 'phase', 23), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 0), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 37), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 73), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'mlp_up_proj'], 'phase', 0), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'mlp_gate_proj'], 'phase', 19), ...
-        struct('kind', 'quant', 'prefix', [layerPrefix 'mlp_down_proj'], 'phase', 41)};
+        struct('lane_name', 'gamma', 'kind', 'float', 'field', [layerPrefix 'input_layernorm'], 'phase', 0), ...
+        struct('lane_name', 'qkv_q', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_q_proj'], 'phase', 0), ...
+        struct('lane_name', 'qkv_k', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_k_proj'], 'phase', 11), ...
+        struct('lane_name', 'qkv_v', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_v_proj'], 'phase', 23), ...
+        struct('lane_name', 'attn_q', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 0), ...
+        struct('lane_name', 'attn_k', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 37), ...
+        struct('lane_name', 'attn_v', 'kind', 'quant', 'prefix', [layerPrefix 'self_attn_o_proj'], 'phase', 73), ...
+        struct('lane_name', 'ffn_up', 'kind', 'quant', 'prefix', [layerPrefix 'mlp_up_proj'], 'phase', 0), ...
+        struct('lane_name', 'ffn_gate', 'kind', 'quant', 'prefix', [layerPrefix 'mlp_gate_proj'], 'phase', 19), ...
+        struct('lane_name', 'ffn_down', 'kind', 'quant', 'prefix', [layerPrefix 'mlp_down_proj'], 'phase', 41)};
 
-    loadNames = {specs.entries{1}.field};
-    for i = 2:numel(specs.entries)
-        prefix = specs.entries{i}.prefix;
-        loadNames = [loadNames, quant_load_names(prefix)]; %#ok<AGROW>
+    loadNames = {};
+    for i = 1:numel(specs.entries)
+        if strcmp(specs.entries{i}.kind, 'float')
+            loadNames{end + 1} = specs.entries{i}.field; %#ok<AGROW>
+        else
+            prefix = specs.entries{i}.prefix;
+            loadNames = [loadNames, quant_load_names(prefix)]; %#ok<AGROW>
+        end
     end
     specs.load_names = unique(loadNames, 'stable');
 end
@@ -123,20 +131,26 @@ function names = quant_load_names(prefix)
     names{end + 1} = [prefix '_g_idx'];
 end
 
-function table = build_lane_table(raw, spec, tableLength, vectorCache)
+function [table, laneDecodeScale] = build_lane_table(raw, spec, tableLength, vectorCache, weightTableMode)
     cacheKey = lane_cache_key(spec);
     if isKey(vectorCache, cacheKey)
         vec = vectorCache(cacheKey);
     else
-        vec = build_lane_vector(raw, spec);
+        vec = build_lane_vector(raw, spec, weightTableMode);
         vectorCache(cacheKey) = vec;
     end
 
     if isempty(vec)
         vec = single(0);
     end
+    laneProfile = get_stage1_scalar_weight_profile(spec.lane_name);
+    if strcmp(weightTableMode, 'effective_scalar') || strcmp(weightTableMode, 'empirical_scalar')
+        laneDecodeScale = laneProfile.decode_scale;
+    else
+        laneDecodeScale = single(1);
+    end
     idx = mod((0:tableLength - 1) + double(spec.phase), numel(vec)) + 1;
-    table = encode_weight_bytes(single(vec(idx)));
+    table = encode_weight_bytes(single(vec(idx)), laneDecodeScale);
 end
 
 function key = lane_cache_key(spec)
@@ -147,15 +161,30 @@ function key = lane_cache_key(spec)
     end
 end
 
-function vec = build_lane_vector(raw, spec)
+function vec = build_lane_vector(raw, spec, weightTableMode)
+    laneProfile = get_stage1_scalar_weight_profile(spec.lane_name);
     if strcmp(spec.kind, 'float')
-        vec = single(raw.(spec.field)(:));
+        if strcmp(weightTableMode, 'empirical_scalar') && ~isnan(laneProfile.constant_value)
+            vec = laneProfile.constant_value;
+        elseif strcmp(weightTableMode, 'effective_scalar') && spec.lane_name == "gamma" && ~isnan(laneProfile.constant_value)
+            vec = laneProfile.constant_value;
+        elseif strcmp(weightTableMode, 'effective_scalar') && laneProfile.reduction_mode == "mean"
+            vec = single(mean(single(raw.(spec.field)(:)), 'all'));
+        else
+            vec = single(raw.(spec.field)(:));
+        end
         return;
     end
 
     w = load_quant_linear(raw, spec.prefix);
     vec = dequantize_quant_linear(w);
-    vec = single(vec(:));
+    if strcmp(weightTableMode, 'empirical_scalar') && ~isnan(laneProfile.constant_value)
+        vec = laneProfile.constant_value;
+    elseif strcmp(weightTableMode, 'effective_scalar') && laneProfile.reduction_mode == "mean_colsum"
+        vec = single(mean(sum(single(vec), 1), 'all'));
+    else
+        vec = single(vec(:));
+    end
 end
 
 function w = load_quant_linear(raw, prefix)
@@ -296,12 +325,13 @@ function srcNib = map_unpack_nibble(dstPos, useAwqOrder)
     srcNib = invMap(dstPos + 1);
 end
 
-function encoded = encode_weight_bytes(values)
-    encoded = round(single(values) * 128) + 128;
+function encoded = encode_weight_bytes(values, decodeScale)
+    scaledValues = single(values) ./ max(single(decodeScale), single(1e-6));
+    encoded = round(scaledValues * 128) + 128;
     encoded = max(min(encoded, 255), 0);
     encoded = uint8(encoded);
 end
 
-function decoded = decode_weight_byte(value)
-    decoded = (single(value) - 128) / 128;
+function decoded = decode_weight_byte(value, decodeScale)
+    decoded = ((single(value) - 128) / 128) * single(decodeScale);
 end

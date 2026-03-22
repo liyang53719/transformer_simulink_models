@@ -1,8 +1,9 @@
 function result = run_stage2_prefill_attention_functional_smoke(rootDir, options)
-%RUN_STAGE2_PREFILL_ATTENTION_FUNCTIONAL_SMOKE Functional smoke for KV banking and running-softmax flow.
-%   This smoke validates deterministic prefill-path behavior in two scenarios:
+%RUN_STAGE2_PREFILL_ATTENTION_FUNCTIONAL_SMOKE Interface-oriented smoke for KV banking and running-softmax flow.
+%   This smoke validates deterministic prefill-path interface behavior in two scenarios:
 %   1) KV banking outputs and running-softmax accumulation with all gates enabled.
 %   2) Gating-off behavior for KV writes and score·V reduction.
+%   It is intentionally a simplified hardware-flow smoke, not a canonical numerical model of attention.
 
     if nargin < 1 || strlength(string(rootDir)) == 0
         rootDir = fileparts(fileparts(mfilename('fullpath')));
@@ -59,6 +60,7 @@ function result = run_stage2_prefill_attention_functional_smoke(rootDir, options
 
     if result.pass
         fprintf('Stage2 prefill-attention functional smoke PASS\n');
+        fprintf('  note: this smoke checks staged interface semantics only; real-model traces remain the numerical source of truth.\n');
     else
         fprintf('Stage2 prefill-attention functional smoke FAIL\n');
         if ~okA

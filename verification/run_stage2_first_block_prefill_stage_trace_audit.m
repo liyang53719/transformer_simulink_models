@@ -77,23 +77,33 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
         stageResult.tail_values = tokenValues(max(1, numel(tokenValues) - 7):numel(tokenValues));
         if strcmp(spec.name, 'residual_out')
             [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_prefix(tokenValues, result.reference_out_hidden);
+            [stageResult.reference_core_common_count, stageResult.reference_core_max_abs_diff] = compare_prefix_trim_trailing_zero(tokenValues, result.reference_out_hidden);
             [stageResult.real_common_count, stageResult.real_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace_real);
+            [stageResult.real_core_common_count, stageResult.real_core_max_abs_diff] = compare_reference_stage_core(spec.name, tokenValues, result.reference_stage_contract_trace_real);
             stageResult.placeholder_max_abs_diff = compare_residual_placeholder(stageResult, result.stages, baseline.stimulus);
             stageResult.placeholder_common_count = numel(tokenValues);
+            stageResult.placeholder_core_common_count = stageResult.placeholder_common_count;
+            stageResult.placeholder_core_max_abs_diff = stageResult.placeholder_max_abs_diff;
         else
             [stageResult.reference_common_count, stageResult.reference_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace);
+            [stageResult.reference_core_common_count, stageResult.reference_core_max_abs_diff] = compare_reference_stage_core(spec.name, tokenValues, result.reference_stage_contract_trace);
             [stageResult.real_common_count, stageResult.real_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace_real);
+            [stageResult.real_core_common_count, stageResult.real_core_max_abs_diff] = compare_reference_stage_core(spec.name, tokenValues, result.reference_stage_contract_trace_real);
             [stageResult.placeholder_common_count, stageResult.placeholder_max_abs_diff] = compare_reference_stage(spec.name, tokenValues, result.reference_stage_contract_trace_placeholder);
+            [stageResult.placeholder_core_common_count, stageResult.placeholder_core_max_abs_diff] = compare_reference_stage_core(spec.name, tokenValues, result.reference_stage_contract_trace_placeholder);
         end
         result.stages(i) = stageResult;
     end
 
     fprintf('Stage2 first-block prefill stage trace audit PASS\n');
+    fprintf('  note: real-trace diffs are canonical; placeholder diffs are heuristic sanity checks only and must not drive builder semantics.\n');
     for i = 1:numel(result.stages)
         stageResult = result.stages(i);
-        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g slx_ref_diff=%s slx_real_diff=%s slx_placeholder_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...
+        fprintf('  %s phase=%.1f valid_count=%d max_abs=%g slx_ref_diff=%s slx_ref_core_diff=%s slx_real_diff=%s slx_real_core_diff=%s slx_placeholder_diff=%s slx_placeholder_core_diff=%s first_exploded_token=%s head=%s tail=%s\n', ...
             stageResult.name, stageResult.phase, stageResult.valid_count, stageResult.max_abs_value, ...
-            printable_scalar(stageResult.reference_max_abs_diff), printable_scalar(stageResult.real_max_abs_diff), printable_scalar(stageResult.placeholder_max_abs_diff), ...
+            printable_scalar(stageResult.reference_max_abs_diff), printable_scalar(stageResult.reference_core_max_abs_diff), ...
+            printable_scalar(stageResult.real_max_abs_diff), printable_scalar(stageResult.real_core_max_abs_diff), ...
+            printable_scalar(stageResult.placeholder_max_abs_diff), printable_scalar(stageResult.placeholder_core_max_abs_diff), ...
             printable_scalar(stageResult.first_exploded_token_index), ...
             mat2str(stageResult.head_values', 6), mat2str(stageResult.tail_values', 6));
     end
@@ -135,10 +145,16 @@ function stageResult = empty_stage_result()
         'tail_values', [], ...
         'reference_common_count', 0, ...
         'reference_max_abs_diff', NaN, ...
+        'reference_core_common_count', 0, ...
+        'reference_core_max_abs_diff', NaN, ...
         'real_common_count', 0, ...
         'real_max_abs_diff', NaN, ...
+        'real_core_common_count', 0, ...
+        'real_core_max_abs_diff', NaN, ...
         'placeholder_common_count', 0, ...
-        'placeholder_max_abs_diff', NaN);
+        'placeholder_max_abs_diff', NaN, ...
+        'placeholder_core_common_count', 0, ...
+        'placeholder_core_max_abs_diff', NaN);
 end
 
 function maxAbsDiff = compare_residual_placeholder(stageResult, stageResults, stimulus)
@@ -175,6 +191,15 @@ function [commonCount, maxAbsDiff] = compare_reference_stage(stageName, actual, 
         return;
     end
     [commonCount, maxAbsDiff] = compare_prefix(actual, referenceStageTrace.(stageName));
+end
+
+function [commonCount, maxAbsDiff] = compare_reference_stage_core(stageName, actual, referenceStageTrace)
+    if ~isstruct(referenceStageTrace) || ~isfield(referenceStageTrace, stageName)
+        commonCount = 0;
+        maxAbsDiff = NaN;
+        return;
+    end
+    [commonCount, maxAbsDiff] = compare_prefix_trim_trailing_zero(actual, referenceStageTrace.(stageName));
 end
 
 function enable_signal_logging(tbName, mdlName, signalSpecs)
@@ -259,6 +284,29 @@ function [commonCount, maxAbsDiff] = compare_prefix(actual, expected)
         maxAbsDiff = NaN;
         return;
     end
+    maxAbsDiff = max(abs(actual(1:commonCount) - expected(1:commonCount)));
+end
+
+function [commonCount, maxAbsDiff] = compare_prefix_trim_trailing_zero(actual, expected)
+    actual = double(actual(:));
+    expected = double(expected(:));
+    commonCount = min(numel(actual), numel(expected));
+    if commonCount == 0
+        maxAbsDiff = NaN;
+        return;
+    end
+
+    actual = actual(1:commonCount);
+    expected = expected(1:commonCount);
+    while commonCount > 1 && abs(actual(commonCount)) <= 1e-12 && abs(expected(commonCount)) > 1e-12
+        commonCount = commonCount - 1;
+    end
+
+    if commonCount == 0
+        maxAbsDiff = NaN;
+        return;
+    end
+
     maxAbsDiff = max(abs(actual(1:commonCount) - expected(1:commonCount)));
 end
 

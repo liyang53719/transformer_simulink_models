@@ -83,11 +83,12 @@ function [summary, detail] = attach_placeholder_contract(summary, detail, contra
 
     weightRspCfg = getFieldOr(ctx, 'WeightRspConfig', struct());
     sampleTables = getFieldOr(weightRspCfg, 'sample_tables', {});
+    laneDecodeScales = getFieldOr(weightRspCfg, 'lane_decode_scales', ones(1, max(1, numel(sampleTables)), 'single'));
     if ~(iscell(sampleTables) && numel(sampleTables) >= 10)
         return;
     end
 
-    placeholderTrace = build_placeholder_contract_trace(contract, detail.stage_contract_trace, sampleTables);
+    placeholderTrace = build_placeholder_contract_trace(contract, detail.stage_contract_trace, sampleTables, laneDecodeScales);
     detail.placeholder_contract_trace = placeholderTrace;
 
     if isfield(placeholderTrace, 'residual_out')
@@ -99,7 +100,7 @@ function [summary, detail] = attach_placeholder_contract(summary, detail, contra
     end
 end
 
-function stageTrace = build_placeholder_contract_trace(contract, realStageTrace, sampleTables)
+function stageTrace = build_placeholder_contract_trace(contract, realStageTrace, sampleTables, laneDecodeScales)
     stageTrace = struct();
 
     tokenPos = double(getFieldOr(contract, 'cfg_token_pos', 1));
@@ -119,18 +120,19 @@ function stageTrace = build_placeholder_contract_trace(contract, realStageTrace,
     rmsDen = sqrt(single(ropeOut .* ropeOut) + single(epsValue));
     rmsNorm = single(ropeOut ./ rmsDen);
 
-    gammaWeight = lookup_decoded_weight(sampleTables, 1, baseAddr + 0);
-    qWeight = lookup_decoded_weight(sampleTables, 2, baseAddr + 1);
-    kWeight = lookup_decoded_weight(sampleTables, 3, baseAddr + 2);
-    vWeight = lookup_decoded_weight(sampleTables, 4, baseAddr + 3);
-    upWeight = lookup_decoded_weight(sampleTables, 8, baseAddr + 7);
-    gateWeight = lookup_decoded_weight(sampleTables, 9, baseAddr + 8);
-    downWeight = lookup_decoded_weight(sampleTables, 10, baseAddr + 9);
+    gammaWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 1, baseAddr + 0);
+    qWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 2, baseAddr + 1);
+    kWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 3, baseAddr + 2);
+    vWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 4, baseAddr + 3);
+    upWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 8, baseAddr + 7);
+    gateWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 9, baseAddr + 8);
+    downWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 10, baseAddr + 9);
 
     stageTrace.rms_out = single(rmsNorm * gammaWeight);
-    stageTrace.q_proj_out = single(stageTrace.rms_out * qWeight);
-    stageTrace.k_proj_out = single(stageTrace.rms_out * kWeight);
-    stageTrace.v_proj_out = single(stageTrace.rms_out * vWeight);
+    qkvInput = abs(stageTrace.rms_out);
+    stageTrace.q_proj_out = single(qkvInput * qWeight);
+    stageTrace.k_proj_out = single(qkvInput * kWeight);
+    stageTrace.v_proj_out = single(qkvInput * vWeight);
     stageTrace.qkv_out = single(stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out);
 
     attnOut = single(getFieldOr(realStageTrace, 'attn_out', 0));
@@ -145,7 +147,7 @@ function stageTrace = build_placeholder_contract_trace(contract, realStageTrace,
     stageTrace.residual_out = single(stageTrace.ffn_out + inResidual);
 end
 
-function decoded = lookup_decoded_weight(sampleTables, laneIndex, addr)
+function decoded = lookup_decoded_weight(sampleTables, laneDecodeScales, laneIndex, addr)
     if laneIndex > numel(sampleTables) || isempty(sampleTables{laneIndex})
         decoded = single(0);
         return;
@@ -154,7 +156,12 @@ function decoded = lookup_decoded_weight(sampleTables, laneIndex, addr)
     table = sampleTables{laneIndex};
     idx = floor(double(addr)) + 1;
     idx = max(1, min(idx, numel(table)));
-    decoded = (single(uint8(table(idx))) - 128) / 128;
+    if laneIndex <= numel(laneDecodeScales)
+        decodeScale = single(laneDecodeScales(laneIndex));
+    else
+        decodeScale = single(1);
+    end
+    decoded = ((single(uint8(table(idx))) - 128) / 128) * decodeScale;
 end
 
 function stageTrace = reduce_stage_contract_trace(tensorTrace)

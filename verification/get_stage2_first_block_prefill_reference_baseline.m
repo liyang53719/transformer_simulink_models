@@ -90,7 +90,7 @@ function [realStageTrace, placeholderStageTrace, mergedStageTrace] = build_refer
         tokenTrace = reduce_reference_stage_trace(getFieldOr(debugInfo, 'TensorTrace', struct([])));
         placeholderTrace = build_placeholder_stage_trace(stimulus, tokenHidden(tokenIndex), tokenSampleIndices(tokenIndex), tokenIndex, tokenTrace, weightRspCfg);
         tokenTrace.residual_out = single(mean(single(outHiddenMatrix(:, end)), 'all') + single(tokenResidual(tokenIndex)));
-        mergedTrace = merge_stage_trace(tokenTrace, placeholderTrace);
+        mergedTrace = merge_stage_trace_real_first(tokenTrace, placeholderTrace);
         realStageTrace = assign_stage_trace_token(realStageTrace, tokenTrace, tokenIndex, tokenCount);
         placeholderStageTrace = assign_stage_trace_token(placeholderStageTrace, placeholderTrace, tokenIndex, tokenCount);
         mergedStageTrace = assign_stage_trace_token(mergedStageTrace, mergedTrace, tokenIndex, tokenCount);
@@ -108,21 +108,25 @@ function stageTrace = assign_stage_trace_token(stageTrace, tokenTrace, tokenInde
     end
 end
 
-function mergedTrace = merge_stage_trace(baseTrace, overrideTrace)
-    mergedTrace = baseTrace;
-    if ~isstruct(overrideTrace)
+function mergedTrace = merge_stage_trace_real_first(realTrace, placeholderTrace)
+    mergedTrace = realTrace;
+    if ~isstruct(placeholderTrace)
         return;
     end
 
-    names = fieldnames(overrideTrace);
+    names = fieldnames(placeholderTrace);
     for i = 1:numel(names)
-        mergedTrace.(names{i}) = overrideTrace.(names{i});
+        name = names{i};
+        if ~isfield(mergedTrace, name)
+            mergedTrace.(name) = placeholderTrace.(name);
+        end
     end
 end
 
 function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, sampleIndex, tokenIndex, realTokenTrace, weightRspCfg)
     stageTrace = struct();
     sampleTables = getFieldOr(weightRspCfg, 'sample_tables', {});
+    laneDecodeScales = getFieldOr(weightRspCfg, 'lane_decode_scales', ones(1, max(1, numel(sampleTables)), 'single'));
     if ~(iscell(sampleTables) && numel(sampleTables) >= 10)
         return;
     end
@@ -142,18 +146,19 @@ function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, sampl
     rmsDen = sqrt(single(ropeOut .* ropeOut) + single(epsValue));
     rmsNorm = single(ropeOut ./ rmsDen);
 
-    gammaWeight = lookup_decoded_weight(sampleTables, 1, baseAddr + 0);
-    qWeight = lookup_decoded_weight(sampleTables, 2, baseAddr + 1);
-    kWeight = lookup_decoded_weight(sampleTables, 3, baseAddr + 2);
-    vWeight = lookup_decoded_weight(sampleTables, 4, baseAddr + 3);
-    upWeight = lookup_decoded_weight(sampleTables, 8, baseAddr + 7);
-    gateWeight = lookup_decoded_weight(sampleTables, 9, baseAddr + 8);
-    downWeight = lookup_decoded_weight(sampleTables, 10, baseAddr + 9);
+    gammaWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 1, baseAddr + 0);
+    qWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 2, baseAddr + 1);
+    kWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 3, baseAddr + 2);
+    vWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 4, baseAddr + 3);
+    upWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 8, baseAddr + 7);
+    gateWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 9, baseAddr + 8);
+    downWeight = lookup_decoded_weight(sampleTables, laneDecodeScales, 10, baseAddr + 9);
 
     rmsOutPlaceholder = single(rmsNorm * gammaWeight);
-    stageTrace.q_proj_out = single(rmsOutPlaceholder * qWeight);
-    stageTrace.k_proj_out = single(rmsOutPlaceholder * kWeight);
-    stageTrace.v_proj_out = single(rmsOutPlaceholder * vWeight);
+    qkvInputPlaceholder = abs(rmsOutPlaceholder);
+    stageTrace.q_proj_out = single(qkvInputPlaceholder * qWeight);
+    stageTrace.k_proj_out = single(qkvInputPlaceholder * kWeight);
+    stageTrace.v_proj_out = single(qkvInputPlaceholder * vWeight);
     stageTrace.qkv_out = single(stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out);
 
     attnOut = single(getFieldOr(realTokenTrace, 'attn_out', 0));
@@ -212,6 +217,10 @@ function stageName = map_reference_trace_op(opName)
             stageName = "v_proj_out";
         case 'attn.o_proj.output'
             stageName = "o_proj_out";
+        case 'block.attn_residual.output'
+            stageName = "attn_residual_out";
+        case 'block.post_attn_norm.output'
+            stageName = "post_attn_norm_out";
         case 'mlp.up_proj.output'
             stageName = "ffn_up_mul";
         case 'mlp.gate_proj.output'
@@ -240,7 +249,7 @@ function scalarValue = reduce_reference_trace_tensor(value)
     scalarValue = single(mean(data, 'all'));
 end
 
-function decoded = lookup_decoded_weight(sampleTables, laneIndex, addr)
+function decoded = lookup_decoded_weight(sampleTables, laneDecodeScales, laneIndex, addr)
     if laneIndex > numel(sampleTables) || isempty(sampleTables{laneIndex})
         decoded = single(0);
         return;
@@ -249,11 +258,16 @@ function decoded = lookup_decoded_weight(sampleTables, laneIndex, addr)
     table = sampleTables{laneIndex};
     idx = floor(double(addr)) + 1;
     idx = max(1, min(idx, numel(table)));
-    decoded = decode_weight_byte_local(uint8(table(idx)));
+    if laneIndex <= numel(laneDecodeScales)
+        decodeScale = single(laneDecodeScales(laneIndex));
+    else
+        decodeScale = single(1);
+    end
+    decoded = decode_weight_byte_local(uint8(table(idx)), decodeScale);
 end
 
-function decoded = decode_weight_byte_local(value)
-    decoded = (single(value) - 128) / 128;
+function decoded = decode_weight_byte_local(value, decodeScale)
+    decoded = ((single(value) - 128) / 128) * single(decodeScale);
 end
 
 function contract = build_prefill_contract(stimulus, tokenHidden, tokenResidual, tokenIndex, sampleIndex)

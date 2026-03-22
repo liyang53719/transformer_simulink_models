@@ -1399,7 +1399,7 @@ function configure_rmsnorm(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
 
     [gammaOut, reqAddr, reqValid] = add_streamed_weight_mul(subPath, 'gamma', 'x_norm/1', 'x_valid/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'gamma_addr_in/1', 410, 55);
+        'rsp_sel/1', 'rsp_sel/2', 'gamma_addr_in/1', get_stage1_scalar_weight_profile('gamma').decode_scale, 410, 55);
     safe_add_line(subPath, reqAddr, 'req_bc/1');
     safe_add_line(subPath, reqValid, 'req_bc/2');
     set_line_name_by_dst_port(subPath, 'req_bc', 1, 'gamma_addr');
@@ -1422,6 +1422,8 @@ function configure_qkv_proj(subPath)
     add_or_reset_bus_selector(subPath, 'rsp_sel', ...
         'qkv_q_data,qkv_q_valid,qkv_k_data,qkv_k_valid,qkv_v_data,qkv_v_valid', [90, 5, 130, 120]);
     add_or_reset_bus_selector(subPath, 'addr_sel', 'q_addr,k_addr,v_addr', [90, 130, 130, 190]);
+    add_block('simulink/Math Operations/Abs', [subPath '/x_abs'], ...
+        'Position', [90, 70, 125, 100]);
     add_block('simulink/Math Operations/Add', [subPath '/qk_sum'], ...
         'Inputs', '++', 'Position', [500, 45, 535, 85]);
     add_block('simulink/Math Operations/Add', [subPath '/qkv_sum'], ...
@@ -1430,6 +1432,8 @@ function configure_qkv_proj(subPath)
         'Operator', 'AND', 'Position', [440, 145, 470, 170]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/kv_pair_valid_z'], ...
         'InitialCondition', '0', 'Position', [490, 145, 520, 170]);
+    add_block('simulink/Discrete/Unit Delay', [subPath '/kv_pair_valid_z2'], ...
+        'InitialCondition', '0', 'Position', [545, 145, 575, 170]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/x_valid_z'], ...
         'InitialCondition', '0', 'Position', [390, 185, 420, 210]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/fused_qkv_valid'], ...
@@ -1469,12 +1473,14 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, 'w_rsp_bus/1', 'rsp_sel/1');
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
-    [qOut, qReqAddr, qReqValid, ~] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
-    [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 105);
-    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 195);
+    safe_add_line(subPath, 'x_in/1', 'x_abs/1');
+
+    [qOut, qReqAddr, qReqValid, ~] = add_streamed_weight_mul(subPath, 'q', 'x_abs/1', 'x_valid/1', ...
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', get_stage1_scalar_weight_profile('qkv_q').decode_scale, 110, 15);
+    [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_abs/1', 'x_valid/1', ...
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', get_stage1_scalar_weight_profile('qkv_k').decode_scale, 110, 105);
+    [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_abs/1', 'x_valid/1', ...
+        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', get_stage1_scalar_weight_profile('qkv_v').decode_scale, 110, 195);
 
     safe_add_line(subPath, qOut, 'qk_sum/1');
     safe_add_line(subPath, kOut, 'qk_sum/2');
@@ -1487,12 +1493,13 @@ function configure_qkv_proj(subPath)
     safe_add_line(subPath, kDataValid, 'kv_pair_valid/1');
     safe_add_line(subPath, vDataValid, 'kv_pair_valid/2');
     safe_add_line(subPath, 'kv_pair_valid/1', 'kv_pair_valid_z/1');
+    safe_add_line(subPath, 'kv_pair_valid_z/1', 'kv_pair_valid_z2/1');
     safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
     safe_add_line(subPath, 'x_valid_z/1', 'fused_qkv_valid/1');
     safe_add_line(subPath, 'kv_pair_valid_z/1', 'fused_qkv_valid/2');
     safe_add_line(subPath, 'fused_qkv_valid/1', 'fused_qkv_valid_z/1');
     safe_add_line(subPath, 'fused_qkv_valid_z/1', 'q_valid_alias/1');
-    safe_add_line(subPath, 'kv_pair_valid_z/1', 'kv_valid_alias/1');
+    safe_add_line(subPath, 'kv_pair_valid_z2/1', 'kv_valid_alias/1');
     safe_add_line(subPath, 'q_valid_alias/1', 'qkv_stream_bc/4');
     safe_add_line(subPath, 'kv_valid_alias/1', 'qkv_stream_bc/5');
     safe_add_line(subPath, 'kv_valid_alias/1', 'kv_group_gain/1');
@@ -1510,6 +1517,7 @@ function configure_qkv_proj(subPath)
     set_line_name_by_dst_port(subPath, 'qkv_stream_bc', 6, 'group_idx');
     set_line_name_by_src_port(subPath, 'kv_pair_valid', 1, 'kv_pair_valid');
     set_line_name_by_src_port(subPath, 'kv_pair_valid_z', 1, 'kv_pair_valid_z');
+    set_line_name_by_src_port(subPath, 'kv_pair_valid_z2', 1, 'kv_pair_valid_z2');
     set_line_name_by_src_port(subPath, 'fused_qkv_valid', 1, 'fused_qkv_valid');
     set_line_name_by_src_port(subPath, 'fused_qkv_valid_z', 1, 'fused_qkv_valid_z');
     set_line_name_by_src_port(subPath, 'group_idx_alias', 1, 'group_idx');
@@ -1646,11 +1654,11 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'head_group_den/1', 'head_group_norm/2');
 
     [qOut, qReqAddr, qReqValid, qDataValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', get_stage1_scalar_weight_profile('attn_q').decode_scale, 110, 15);
     [kOut, kReqAddr, kReqValid, kDataValid] = add_streamed_weight_mul(subPath, 'k', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 95);
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', get_stage1_scalar_weight_profile('attn_k').decode_scale, 110, 95);
     [vOut, vReqAddr, vReqValid, vDataValid] = add_streamed_weight_mul(subPath, 'v', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 110, 175);
+        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', get_stage1_scalar_weight_profile('attn_v').decode_scale, 110, 175);
 
     safe_add_line(subPath, qOut, 'head_group_stage_z/1');
     safe_add_line(subPath, 'head_group_stage_z/1', 'score_mul/1');
@@ -1788,11 +1796,11 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'w_addr_bus/1', 'addr_sel/1');
 
     [upOut, upReqAddr, upReqValid, upDataValid] = add_streamed_weight_mul(subPath, 'up', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', 110, 15);
+        'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', get_stage1_scalar_weight_profile('ffn_up').decode_scale, 110, 15);
     [gateOut, gateReqAddr, gateReqValid, gateDataValid] = add_streamed_weight_mul(subPath, 'gate', 'x_in/1', 'x_valid/1', ...
-        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', 110, 145);
+        'rsp_sel/3', 'rsp_sel/4', 'addr_sel/2', get_stage1_scalar_weight_profile('ffn_gate').decode_scale, 110, 145);
     [downOut, downReqAddr, downReqValid, downDataValid] = add_streamed_weight_mul(subPath, 'down', 'swiglu_stage_gate/1', 'swiglu_valid_gate_z2/1', ...
-        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', 580, 145);
+        'rsp_sel/5', 'rsp_sel/6', 'addr_sel/3', get_stage1_scalar_weight_profile('ffn_down').decode_scale, 580, 145);
 
     safe_add_line(subPath, 'x_valid/1', 'x_valid_z/1');
     safe_add_line(subPath, upDataValid, 'gateup_pair_valid/1');
@@ -1839,7 +1847,7 @@ function configure_ffn_swiglu(subPath)
     safe_add_line(subPath, 'req_bc/1', 'w_req_bus/1');
 end
 
-function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed_weight_mul(subPath, prefix, inSig, reqEnableSig, ddrDataSig, ddrValidSig, reqAddrSig, x0, y0)
+function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed_weight_mul(subPath, prefix, inSig, reqEnableSig, ddrDataSig, ddrValidSig, reqAddrSig, weightDecodeScale, x0, y0)
     % Model off-chip DDR fetch + on-chip SRAM cache using HDL RAMS blocks.
     reqAddrCast = [prefix '_req_addr_u8'];
     reqAddrOutCast = [prefix '_req_addr_double'];
@@ -1913,7 +1921,7 @@ function [mulOut, reqAddrOutSig, reqValidOutSig, dataValidOutSig] = add_streamed
     add_block('simulink/Math Operations/Add', [subPath '/' weightCentered], ...
         'Inputs', '+-', 'Position', [x0 + 340, y0 + 42, x0 + 375, y0 + 68]);
     add_block('simulink/Math Operations/Gain', [subPath '/' weightScale], ...
-        'Gain', '1/128', 'Position', [x0 + 390, y0 + 42, x0 + 430, y0 + 68]);
+        'Gain', num2str(double(weightDecodeScale) / 128, '%.17g'), 'Position', [x0 + 390, y0 + 42, x0 + 430, y0 + 68]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/' validOr], ...
         'Operator', 'OR', 'Position', [x0 + 230, y0 + 95, x0 + 260, y0 + 125]);
 
