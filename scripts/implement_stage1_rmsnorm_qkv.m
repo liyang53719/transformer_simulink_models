@@ -1576,8 +1576,13 @@ function configure_attention(subPath)
         'Inputs', '++', 'Position', [250, 250, 285, 280]);
     add_block('simulink/Math Operations/Add', [subPath '/head_group_den'], ...
         'Inputs', '++', 'Position', [250, 295, 285, 325]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/head_group_bias_fp'], ...
+        'OutDataTypeStr', 'fixdt(1,32,16)', 'Position', [300, 245, 350, 275]);
+    add_block('simulink/Signal Attributes/Data Type Conversion', [subPath '/head_group_den_fp'], ...
+        'OutDataTypeStr', 'fixdt(1,32,16)', 'Position', [300, 290, 350, 320]);
     add_block('simulink/Math Operations/Divide', [subPath '/head_group_norm'], ...
-        'Position', [310, 250, 345, 285]);
+        'OutDataTypeStr', 'fixdt(1,32,16)', ...
+        'Position', [370, 250, 405, 285]);
     add_block('simulink/Logic and Bit Operations/Logical Operator', [subPath '/qk_pair_valid'], ...
         'Operator', 'AND', 'Position', [250, 95, 280, 120]);
     add_block('simulink/Discrete/Unit Delay', [subPath '/qk_pair_valid_z'], ...
@@ -1587,7 +1592,7 @@ function configure_attention(subPath)
     add_block('simulink/Math Operations/Product', [subPath '/score_stage_gate'], ...
         'Inputs', '**', 'Position', [340, 55, 375, 95]);
     add_block('simulink/Math Operations/Add', [subPath '/score_tile_bias'], ...
-        'Inputs', '++', 'Position', [350, 250, 385, 280]);
+        'Inputs', '+', 'Position', [350, 250, 385, 280]);
     add_block('simulink/Math Operations/Add', [subPath '/score_den_pre'], ...
         'Inputs', '+', 'Position', [350, 55, 385, 95]);
     add_block('simulink/Math Operations/Add', [subPath '/score_den'], ...
@@ -1650,8 +1655,10 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'schedule_sel/2', 'head_group_bias/2');
     safe_add_line(subPath, 'schedule_sel/8', 'head_group_den/1');
     safe_add_line(subPath, 'array_dim_sum/1', 'head_group_den/2');
-    safe_add_line(subPath, 'head_group_bias/1', 'head_group_norm/1');
-    safe_add_line(subPath, 'head_group_den/1', 'head_group_norm/2');
+    safe_add_line(subPath, 'head_group_bias/1', 'head_group_bias_fp/1');
+    safe_add_line(subPath, 'head_group_den/1', 'head_group_den_fp/1');
+    safe_add_line(subPath, 'head_group_bias_fp/1', 'head_group_norm/1');
+    safe_add_line(subPath, 'head_group_den_fp/1', 'head_group_norm/2');
 
     [qOut, qReqAddr, qReqValid, qDataValid] = add_streamed_weight_mul(subPath, 'q', 'x_in/1', 'x_valid/1', ...
         'rsp_sel/1', 'rsp_sel/2', 'addr_sel/1', get_stage1_scalar_weight_profile('attn_q').decode_scale, 110, 15);
@@ -1677,7 +1684,6 @@ function configure_attention(subPath)
     safe_add_line(subPath, 'row_max/1', 'score_shift/2');
     safe_add_line(subPath, 'score_abs/1', 'score_den_pre/1');
     safe_add_line(subPath, 'head_group_norm/1', 'score_tile_bias/1');
-    safe_add_line(subPath, 'schedule_sel/6', 'score_tile_bias/2');
     safe_add_line(subPath, 'score_den_pre/1', 'score_den/1');
     safe_add_line(subPath, 'score_tile_bias/1', 'score_den/2');
     safe_add_line(subPath, 'score_shift/1', 'softmax_gate/1');
