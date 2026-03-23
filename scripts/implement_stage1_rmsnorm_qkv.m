@@ -42,7 +42,7 @@ function implement_stage1_rmsnorm_qkv(rootDir, options)
     configure_qkv_proj([mdlName '/qkv_proj_u']);
     configure_attention([mdlName '/attention_u']);
     configure_ffn_swiglu([mdlName '/ffn_swiglu_u']);
-    configure_residual([mdlName '/attn_residual_u']);
+    configure_residual([mdlName '/attn_residual_u'], true, true);
     configure_post_attn_norm([mdlName '/post_attn_norm_u']);
     configure_residual([mdlName '/residual_u'], false, false);
     configure_rope([mdlName '/rope_u']);
@@ -2037,7 +2037,7 @@ function set_matlab_function_script(blockPath, code, errorId)
     chart.Script = code;
 end
 
-function configure_residual(subPath, delayMain, delayValid)
+function configure_residual(subPath, delayMain, delayValid, skipDelayCycles)
     clear_subsystem_contents(subPath);
 
     if nargin < 2
@@ -2045,6 +2045,9 @@ function configure_residual(subPath, delayMain, delayValid)
     end
     if nargin < 3
         delayValid = true;
+    end
+    if nargin < 4
+        skipDelayCycles = 0;
     end
 
     add_block('simulink/Sources/In1', [subPath '/x_main'], 'Port', '1', 'Position', [30, 55, 60, 69]);
@@ -2063,7 +2066,16 @@ function configure_residual(subPath, delayMain, delayValid)
     else
         safe_add_line(subPath, 'x_main/1', 'res_sum/1');
     end
-    safe_add_line(subPath, 'x_skip/1', 'res_sum/2');
+    skipSig = 'x_skip/1';
+    for delayIndex = 1:skipDelayCycles
+        delayName = sprintf('skip_delay_%d', delayIndex);
+        xPos = 110 + 45 * (delayIndex - 1);
+        add_block('simulink/Discrete/Unit Delay', [subPath '/' delayName], ...
+            'InitialCondition', '0', 'Position', [xPos, 110, xPos + 30, 130]);
+        safe_add_line(subPath, skipSig, [delayName '/1']);
+        skipSig = [delayName '/1'];
+    end
+    safe_add_line(subPath, skipSig, 'res_sum/2');
     safe_add_line(subPath, 'res_sum/1', 'y_out/1');
     if delayValid
         add_block('simulink/Discrete/Unit Delay', [subPath '/valid_delay'], ...

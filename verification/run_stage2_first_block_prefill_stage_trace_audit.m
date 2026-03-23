@@ -113,6 +113,8 @@ function result = run_stage2_first_block_prefill_stage_trace_audit(rootDir, opti
             printable_scalar(stageResult.first_exploded_token_index), ...
             mat2str(stageResult.head_values', 6), mat2str(stageResult.tail_values', 6));
     end
+    result.residual_component = summarize_residual_component_alignment(result.stages, baseline.stimulus);
+    print_residual_component_alignment(result.residual_component);
 end
 
 function specs = build_stage_signal_specs()
@@ -163,6 +165,80 @@ function stageResult = empty_stage_result()
         'placeholder_max_abs_diff', NaN, ...
         'placeholder_core_common_count', 0, ...
         'placeholder_core_max_abs_diff', NaN);
+end
+
+function summary = summarize_residual_component_alignment(stageResults, stimulus)
+    summary = struct();
+    summary.available = false;
+    summary.delta_diff = NaN;
+    summary.delta_shift = NaN;
+    summary.delta_shifted_diff = NaN;
+    summary.delta_head = zeros(0, 1);
+    summary.attn_residual_phase = NaN;
+    summary.attn_out_phase = NaN;
+
+    names = {stageResults.name};
+    residualIdx = find(strcmp(names, 'attn_residual_out'), 1, 'first');
+    attnIdx = find(strcmp(names, 'attn_out'), 1, 'first');
+    if isempty(residualIdx) || isempty(attnIdx)
+        return;
+    end
+
+    residualValues = double(stageResults(residualIdx).values(:));
+    attnValues = double(stageResults(attnIdx).values(:));
+    commonCount = min(numel(residualValues), numel(attnValues));
+    tokenMask = logical(stimulus.in_valid(:));
+    residualTarget = double(stimulus.in_residual(tokenMask));
+    if commonCount == 0 || isempty(residualTarget)
+        return;
+    end
+
+    deltaValues = residualValues(1:commonCount) - attnValues(1:commonCount);
+    summary.available = true;
+    summary.delta_diff = compare_prefix(deltaValues, residualTarget);
+    [summary.delta_shift, summary.delta_shifted_diff] = compare_shifted_reference(deltaValues, residualTarget, 8);
+    summary.delta_head = deltaValues(1:min(8, commonCount));
+    summary.attn_residual_phase = stageResults(residualIdx).phase;
+    summary.attn_out_phase = stageResults(attnIdx).phase;
+end
+
+function print_residual_component_alignment(summary)
+    fprintf('  residual_component');
+    if ~summary.available
+        fprintf(' unavailable\n');
+        return;
+    end
+    fprintf(' attn_residual_phase=%.1f attn_out_phase=%.1f delta_diff=%g delta_shift=%d delta_shifted_diff=%g head=%s\n', ...
+        summary.attn_residual_phase, summary.attn_out_phase, summary.delta_diff, summary.delta_shift, summary.delta_shifted_diff, ...
+        mat2str(summary.delta_head', 6));
+end
+
+function [bestShift, bestDiff] = compare_shifted_reference(actual, reference, maxShift)
+    actual = double(actual(:));
+    reference = double(reference(:));
+    bestShift = 0;
+    bestDiff = Inf;
+    for shift = 0:maxShift
+        if shift >= numel(reference)
+            break;
+        end
+
+        shiftedReference = reference((shift + 1):end);
+        commonCount = min(numel(actual), numel(shiftedReference));
+        if commonCount == 0
+            continue;
+        end
+
+        diffValue = max(abs(actual(1:commonCount) - shiftedReference(1:commonCount)));
+        if diffValue < bestDiff
+            bestDiff = diffValue;
+            bestShift = shift;
+        end
+    end
+
+    if ~isfinite(bestDiff)
+        bestDiff = NaN;
+    end
 end
 
 function maxAbsDiff = compare_residual_placeholder(stageResult, stageResults, stimulus)

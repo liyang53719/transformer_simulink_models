@@ -164,8 +164,9 @@ function stageTrace = build_placeholder_stage_trace(stimulus, tokenHidden, token
     stageTrace.qkv_out = single(stageTrace.q_proj_out + stageTrace.k_proj_out + stageTrace.v_proj_out);
 
     attnOut = single(getFieldOr(realTokenTrace, 'attn_out', 0));
-    stageTrace.attn_residual_out = single(getFieldOr(realTokenTrace, 'attn_residual_out', attnOut + single(tokenResidual)));
-    postAttnNorm = single(getFieldOr(realTokenTrace, 'post_attn_norm_out', stageTrace.attn_residual_out));
+    stageTrace.attn_out = attnOut;
+    stageTrace.attn_residual_out = single(attnOut + single(tokenResidual));
+    postAttnNorm = stageTrace.attn_residual_out;
     stageTrace.post_attn_norm_out = postAttnNorm;
     stageTrace.ffn_up_mul = single(postAttnNorm * upWeight);
     stageTrace.ffn_gate_mul = single(postAttnNorm * gateWeight);
